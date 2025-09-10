@@ -19,11 +19,13 @@ type Server struct {
 func New(cfg *config.Config, logger *slog.Logger) *Server {
 	var slackBot slack.Bot
 	if cfg.SlackBotToken != "" {
+		// For the basic New function, we pass nil for the question selector
+		// The caller should use NewWithBot if they want full functionality
 		slackBot = slack.NewBot(slack.SlackConfig{
 			Token:         cfg.SlackBotToken,
 			SigningSecret: cfg.SlackSigningSecret,
 		}, nil, cfg.AdminUsers)
-		logger.Info("Slack bot initialized")
+		logger.Info("Slack bot initialized without question selector")
 	} else {
 		logger.Warn("No Slack bot token provided - Slack integration disabled")
 	}

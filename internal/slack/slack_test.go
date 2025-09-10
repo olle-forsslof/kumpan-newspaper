@@ -17,7 +17,8 @@ func TestSlackBot_SendMessage(t *testing.T) {
 
 func TestSlackBot_HandleSlashCommand(t *testing.T) {
 	// We want to handle slash commands like /submit
-	bot := NewBot(SlackConfig{Token: "xoxb-test-token"}, &MockQuestionSelector{}, []string{"U1234567"})
+	// Use nil for now since we're just testing basic functionality
+	bot := NewBot(SlackConfig{Token: "xoxb-test-token"}, nil, []string{"U1234567"})
 
 	// Simulate a slash command payload
 	command := SlashCommand{
