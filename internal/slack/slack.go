@@ -26,15 +26,20 @@ type QuestionSelector interface {
 }
 
 func NewBot(cfg SlackConfig, questionSelector QuestionSelector, adminUsers []string) Bot {
-	client := slack.New(cfg.Token)
+	// Don't initialize the client immediately - only when needed
 	return &slackBot{
-		client:       client,
+		client:       nil, // Initialize as nil
 		config:       cfg,
 		adminHandler: NewAdminHandler(questionSelector, adminUsers),
 	}
 }
 
 func (b *slackBot) SendMessage(ctx context.Context, channelID, text string) error {
+	// Initialize client only when actually needed
+	if b.client == nil {
+		b.client = slack.New(b.config.Token)
+	}
+
 	_, _, err := b.client.PostMessageContext(ctx, channelID,
 		slack.MsgOptionText(text, false))
 	if err != nil {
