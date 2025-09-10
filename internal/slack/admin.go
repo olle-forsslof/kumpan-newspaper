@@ -86,12 +86,7 @@ func parseAddQuestionCommand(text string) (*AdminCommand, error) {
 }
 
 func (ah *AdminHandler) HandleAdminCommand(ctx context.Context, userID string, cmd *AdminCommand) (*SlashCommandResponse, error) {
-	// TEMPORARY DEBUG: Skip security check and always show help for testing
-	if cmd.Action == "help" || cmd.Action == "" {
-		return ah.handleHelp()
-	}
-
-	// Security check for non-help commands
+	// Security check first
 	if !ah.isAuthorized(userID) {
 		return &SlashCommandResponse{
 			Text:         fmt.Sprintf("❌ You are not authorized to use admin commands. Your ID: %s", userID),
@@ -147,7 +142,7 @@ func (ah *AdminHandler) handleRemoveQuestion(ctx context.Context, args []string)
 		}, nil
 	}
 
-	// TODO: implement acrual question removal logic
+	// TODO: implement actual question removal logic
 	return &SlashCommandResponse{
 		Text:         "Question removal not implemented yet",
 		ResponseType: "ephemeral",
