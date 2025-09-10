@@ -86,10 +86,15 @@ func parseAddQuestionCommand(text string) (*AdminCommand, error) {
 }
 
 func (ah *AdminHandler) HandleAdminCommand(ctx context.Context, userID string, cmd *AdminCommand) (*SlashCommandResponse, error) {
-	// Security check first
+	// TEMPORARY DEBUG: Skip security check and always show help for testing
+	if cmd.Action == "help" || cmd.Action == "" {
+		return ah.handleHelp()
+	}
+
+	// Security check for non-help commands
 	if !ah.isAuthorized(userID) {
 		return &SlashCommandResponse{
-			Text:         "❌ You are not authorized to use admin commands.",
+			Text:         fmt.Sprintf("❌ You are not authorized to use admin commands. Your ID: %s", userID),
 			ResponseType: "ephemeral",
 		}, nil
 	}
