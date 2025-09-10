@@ -70,7 +70,7 @@ func (h *SlashCommandHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 
 	// Extract Slack commands from the form
 	command := SlashCommand{
-		Token:       r.FormValue("toker"),
+		Token:       r.FormValue("token"),
 		Command:     r.FormValue("command"),
 		Text:        r.FormValue("text"),
 		UserID:      r.FormValue("user_id"),

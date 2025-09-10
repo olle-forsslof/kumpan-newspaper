@@ -44,11 +44,17 @@ func (b *slackBot) SendMessage(ctx context.Context, channelID, text string) erro
 }
 
 func (b *slackBot) HandleSlashCommand(ctx context.Context, cmd SlashCommand) (*SlashCommandResponse, error) {
+	// Handle empty commands or help requests
+	if cmd.Text == "" || cmd.Text == "help" {
+		return b.handleRegularHelp(), nil
+	}
+
+	// Handle admin commands
 	if strings.HasPrefix(cmd.Text, "admin ") {
 		adminCmd, err := parseAdminCommand(cmd.Text)
 		if err != nil {
 			return &SlashCommandResponse{
-				Text:         "Invalid admin command format. Type 'admin help' for usage.",
+				Text:         "Invalid admin command format. Type 'admin help' for admin usage or just 'help' for regular commands.",
 				ResponseType: "ephemeral",
 			}, nil
 		}
@@ -56,9 +62,9 @@ func (b *slackBot) HandleSlashCommand(ctx context.Context, cmd SlashCommand) (*S
 		return b.adminHandler.HandleAdminCommand(ctx, cmd.UserID, adminCmd)
 	}
 
-	// Regular newsletter commands continue here...
+	// Handle regular newsletter functionality
 	return &SlashCommandResponse{
-		Text:         fmt.Sprintf("Received: %s", cmd.Text),
+		Text:         fmt.Sprintf("I received: '%s'\n\nFor help with commands, type `help`\nFor admin commands, type `admin help`", cmd.Text),
 		ResponseType: "ephemeral",
 	}, nil
 }
@@ -75,4 +81,23 @@ func (b *slackBot) HandleEventCallback(ctx context.Context, event SlackEvent) er
 	}
 
 	return nil
+}
+
+func (b *slackBot) handleRegularHelp() *SlashCommandResponse {
+	help := "*Newsletter Bot Help*\n\n" +
+		"This bot helps manage daily/weekly newsletter questions for your team.\n\n" +
+		"*Available Commands:*\n" +
+		"• `help` - Show this help message\n" +
+		"• `admin help` - Show admin commands (authorized users only)\n\n" +
+		"*Admin users can:*\n" +
+		"• Add questions to different categories (work, personal, fun, etc.)\n" +
+		"• List questions in each category\n" +
+		"• Test question rotation\n" +
+		"• Remove questions\n\n" +
+		"Contact your admin to be added to the authorized users list if you need admin access."
+
+	return &SlashCommandResponse{
+		Text:         help,
+		ResponseType: "ephemeral",
+	}
 }
