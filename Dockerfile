@@ -19,9 +19,10 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o main ./cmd/server
 # Runtime stage  
 FROM alpine:latest
 
-# Install CA certificates and update them
-RUN apk --no-cache add ca-certificates sqlite tzdata && \
-    update-ca-certificates
+# Install CA certificates, tzdata, SQLite, and libc6-compat for Go SSL support
+RUN apk --no-cache add ca-certificates sqlite tzdata libc6-compat && \
+    update-ca-certificates && \
+    cp /etc/ssl/certs/ca-certificates.crt /etc/ssl/cert.pem
 
 WORKDIR /root/
 
@@ -30,10 +31,6 @@ COPY --from=builder /app/main .
 
 # Copy migrations
 COPY --from=builder /app/migrations ./migrations/
-
-# Set SSL certificate environment variable
-ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-ENV SSL_CERT_DIR=/etc/ssl/certs
 
 # Expose port
 EXPOSE 8080
