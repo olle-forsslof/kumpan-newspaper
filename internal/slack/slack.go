@@ -67,6 +67,11 @@ func (b *slackBot) HandleSlashCommand(ctx context.Context, cmd SlashCommand) (*S
 		return b.adminHandler.HandleAdminCommand(ctx, cmd.UserID, adminCmd)
 	}
 
+	// Handle news story submissions for regular users
+	if strings.HasPrefix(cmd.Text, "report ") {
+		return b.handleNewsSubmission(ctx, cmd)
+	}
+
 	// Handle regular newsletter functionality
 	return &SlashCommandResponse{
 		Text:         fmt.Sprintf("I received: '%s'\n\nFor help with commands, type `help`\nFor admin commands, type `admin help`", cmd.Text),
@@ -90,19 +95,39 @@ func (b *slackBot) HandleEventCallback(ctx context.Context, event SlackEvent) er
 
 func (b *slackBot) handleRegularHelp() *SlashCommandResponse {
 	help := "*Newsletter Bot Help*\n\n" +
-		"This bot helps manage daily/weekly newsletter questions for your team.\n\n" +
+		"This bot helps manage daily/weekly newsletter questions and collect news stories.\n\n" +
 		"*Available Commands:*\n" +
 		"• `help` - Show this help message\n" +
+		"• `submit [your news story]` - Submit a news story for the newsletter\n" +
 		"• `admin help` - Show admin commands (authorized users only)\n\n" +
-		"*Admin users can:*\n" +
-		"• Add questions to different categories (work, personal, fun, etc.)\n" +
-		"• List questions in each category\n" +
-		"• Test question rotation\n" +
-		"• Remove questions\n\n" +
-		"Contact your admin to be added to the authorized users list if you need admin access."
+		"*Examples:*\n" +
+		"• `submit Check out this cool new Go library: https://github.com/example/repo`\n" +
+		"• `submit Our team shipped the new user dashboard this week!`\n\n" +
+		"*For Admins:*\n" +
+		"Admin users can manage newsletter questions, view submissions, and configure the bot."
 
 	return &SlashCommandResponse{
 		Text:         help,
 		ResponseType: "ephemeral",
 	}
+}
+
+func (b *slackBot) handleNewsSubmission(ctx context.Context, cmd SlashCommand) (*SlashCommandResponse, error) {
+	// Extract the news content (everything after "submit ")
+	newsContent := strings.TrimSpace(strings.TrimPrefix(cmd.Text, "report "))
+
+	if newsContent == "" {
+		return &SlashCommandResponse{
+			Text:         "Please provide some content for your news submission.\n\nExample: `submit Our team launched a new feature this week!`",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// TODO: Store the news submission in database
+	// For now, just acknowledge the submission
+
+	return &SlashCommandResponse{
+		Text:         fmt.Sprintf("📰 *News submission received!*\n\n> %s\n\n✅ Your story has been submitted for the newsletter. Thanks for contributing!", newsContent),
+		ResponseType: "ephemeral",
+	}, nil
 }

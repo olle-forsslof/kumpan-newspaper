@@ -1,7 +1,9 @@
 package slack
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 )
@@ -40,9 +42,20 @@ func (h *SlashCommandHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Read the raw body first (needed for signature verification)
+	rawBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Error("Failed to read request body", "error", err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Restore the body so ParseForm can read it
+	r.Body = io.NopCloser(bytes.NewReader(rawBody))
+
 	// Parse the form data
 	if err := r.ParseForm(); err != nil {
-		slog.Error("Failed to parse form data", "Error", err)
+		slog.Error("Failed to parse form data", "error", err)
 		http.Error(w, "Bad request", http.StatusBadRequest)
 		return
 	}
@@ -53,12 +66,8 @@ func (h *SlashCommandHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		signature := r.Header.Get("X-Slack-Signature")
 		timestamp := r.Header.Get("X-Slack-Request-Timestamp")
 
-		// Get the raw body for signature verification
-		// Note: r.PostForm.Encode() recreates the original form-encoded body
-		body := r.PostForm.Encode()
-
-		// Verify the signature
-		if !VerifySignature(h.signingSecret, timestamp, body, signature) {
+		// Use the raw body for signature verification
+		if !VerifySignature(h.signingSecret, timestamp, string(rawBody), signature) {
 			slog.Warn("Invalid signature - rejecting request",
 				"signature", signature,
 				"timestamp", timestamp)
