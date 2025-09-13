@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
 )
 
 type AdminHandler struct {
-	questionSelector QuestionSelector
-	authorizedUsers  []string // Slack user IDs who can run admin commands
+	questionSelector  QuestionSelector
+	authorizedUsers   []string // Slack user IDs who can run admin commands
+	submissionManager SubmissionManager
 }
 
 type AdminCommand struct {
@@ -19,8 +22,18 @@ type AdminCommand struct {
 // NewAdminHandler creates a handler for admin commands
 func NewAdminHandler(questionSelector QuestionSelector, authorizedUsers []string) *AdminHandler {
 	return &AdminHandler{
-		questionSelector: questionSelector,
-		authorizedUsers:  authorizedUsers,
+		questionSelector:  questionSelector,
+		authorizedUsers:   authorizedUsers,
+		submissionManager: nil, // No submission management for basic handler
+	}
+}
+
+// NewAdminHandlerWithSubmissions creates a handler with submission management capabilities
+func NewAdminHandlerWithSubmissions(questionSelector QuestionSelector, authorizedUsers []string, submissionManager SubmissionManager) *AdminHandler {
+	return &AdminHandler{
+		questionSelector:  questionSelector,
+		authorizedUsers:   authorizedUsers,
+		submissionManager: submissionManager,
 	}
 }
 
@@ -103,6 +116,8 @@ func (ah *AdminHandler) HandleAdminCommand(ctx context.Context, userID string, c
 		return ah.handleRemoveQuestion(ctx, cmd.Args)
 	case "test-rotation":
 		return ah.handleTestRotation(ctx, cmd.Args)
+	case "list-submissions":
+		return ah.handleListSubmissions(ctx, cmd.Args)
 	default:
 		return ah.handleHelp()
 	}
@@ -152,16 +167,24 @@ func (ah *AdminHandler) handleRemoveQuestion(ctx context.Context, args []string)
 func (ah *AdminHandler) handleHelp() (*SlashCommandResponse, error) {
 	help := `*Newsletter Admin Commands*:
 
+**Question Management:**
      • admin add-question "Question text" category
      • admin list-questions category
      • admin test-rotation category
      • admin remove-question question_id
+
+**Submission Management:**
+     • admin list-submissions - Show all news submissions
+     • admin list-submissions [user_id] - Show submissions by specific user
+
+**Other:**
      • admin help - Show this help message
 
      Examples:
      > admin add-question "What did you accomplish this week?" work
      > admin list-questions fun
-     > admin test-rotation personal`
+     > admin list-submissions
+     > admin list-submissions U123456789`
 
 	return &SlashCommandResponse{
 		Text:         help,
@@ -236,6 +259,72 @@ func (ah *AdminHandler) handleTestRotation(ctx context.Context, args []string) (
 	return &SlashCommandResponse{
 		Text: fmt.Sprintf("🎯 Next question for '%s' category:\n\n> %s\n\n%s",
 			category, question.Text, usedStatus),
+		ResponseType: "ephemeral",
+	}, nil
+}
+
+// handleListSubmissions handles listing news submissions
+func (ah *AdminHandler) handleListSubmissions(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+	if ah.submissionManager == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Submission management is not available.",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	var submissions []database.Submission
+	var err error
+
+	// Check if filtering by specific user
+	if len(args) > 0 {
+		userID := args[0]
+		submissions, err = ah.submissionManager.GetSubmissionsByUser(ctx, userID)
+		if err != nil {
+			return &SlashCommandResponse{
+				Text:         fmt.Sprintf("❌ Failed to get submissions for user %s: %v", userID, err),
+				ResponseType: "ephemeral",
+			}, nil
+		}
+	} else {
+		// Get all submissions
+		submissions, err = ah.submissionManager.GetAllSubmissions(ctx)
+		if err != nil {
+			return &SlashCommandResponse{
+				Text:         fmt.Sprintf("❌ Failed to get submissions: %v", err),
+				ResponseType: "ephemeral",
+			}, nil
+		}
+	}
+
+	if len(submissions) == 0 {
+		return &SlashCommandResponse{
+			Text:         "📰 No news submissions found.",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Format the response
+	var response strings.Builder
+	if len(args) > 0 {
+		response.WriteString(fmt.Sprintf("📰 News submissions for user %s:\n\n", args[0]))
+	} else {
+		response.WriteString(fmt.Sprintf("📰 All news submissions (%d total):\n\n", len(submissions)))
+	}
+
+	for i, submission := range submissions {
+		response.WriteString(fmt.Sprintf("**#%d** (ID: %d)\n", i+1, submission.ID))
+		response.WriteString(fmt.Sprintf("👤 User: %s\n", submission.UserID))
+		response.WriteString(fmt.Sprintf("📅 Submitted: %s\n", submission.CreatedAt.Format("Jan 2, 2006 15:04")))
+		response.WriteString(fmt.Sprintf("📝 Content: %s\n\n", submission.Content))
+
+		// Add separator for readability (except for last item)
+		if i < len(submissions)-1 {
+			response.WriteString("---\n\n")
+		}
+	}
+
+	return &SlashCommandResponse{
+		Text:         response.String(),
 		ResponseType: "ephemeral",
 	}, nil
 }

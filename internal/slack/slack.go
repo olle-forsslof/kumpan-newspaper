@@ -13,9 +13,10 @@ import (
 )
 
 type slackBot struct {
-	client       *slack.Client
-	config       SlackConfig
-	adminHandler *AdminHandler
+	client            *slack.Client
+	config            SlackConfig
+	adminHandler      *AdminHandler
+	submissionManager SubmissionManager
 }
 
 type QuestionSelector interface {
@@ -25,12 +26,29 @@ type QuestionSelector interface {
 	AddQuestion(ctx context.Context, text, category string) (*database.Question, error)
 }
 
+type SubmissionManager interface {
+	CreateNewsSubmission(ctx context.Context, userID, content string) (*database.Submission, error)
+	GetSubmissionsByUser(ctx context.Context, userID string) ([]database.Submission, error)
+	GetAllSubmissions(ctx context.Context) ([]database.Submission, error)
+}
+
 func NewBot(cfg SlackConfig, questionSelector QuestionSelector, adminUsers []string) Bot {
 	// Don't initialize the client immediately - only when needed
 	return &slackBot{
-		client:       nil, // Initialize as nil
-		config:       cfg,
-		adminHandler: NewAdminHandler(questionSelector, adminUsers),
+		client:            nil, // Initialize as nil
+		config:            cfg,
+		adminHandler:      NewAdminHandler(questionSelector, adminUsers),
+		submissionManager: nil, // No submission manager for basic bot
+	}
+}
+
+// NewBotWithSubmissions creates a bot with news submission storage capabilities
+func NewBotWithSubmissions(cfg SlackConfig, questionSelector QuestionSelector, adminUsers []string, submissionManager SubmissionManager) Bot {
+	return &slackBot{
+		client:            nil,
+		config:            cfg,
+		adminHandler:      NewAdminHandler(questionSelector, adminUsers),
+		submissionManager: submissionManager,
 	}
 }
 
@@ -68,7 +86,7 @@ func (b *slackBot) HandleSlashCommand(ctx context.Context, cmd SlashCommand) (*S
 	}
 
 	// Handle news story submissions for regular users
-	if strings.HasPrefix(cmd.Text, "report ") {
+	if strings.HasPrefix(cmd.Text, "submit ") {
 		return b.handleNewsSubmission(ctx, cmd)
 	}
 
@@ -114,7 +132,7 @@ func (b *slackBot) handleRegularHelp() *SlashCommandResponse {
 
 func (b *slackBot) handleNewsSubmission(ctx context.Context, cmd SlashCommand) (*SlashCommandResponse, error) {
 	// Extract the news content (everything after "submit ")
-	newsContent := strings.TrimSpace(strings.TrimPrefix(cmd.Text, "report "))
+	newsContent := strings.TrimSpace(strings.TrimPrefix(cmd.Text, "submit "))
 
 	if newsContent == "" {
 		return &SlashCommandResponse{
@@ -123,8 +141,16 @@ func (b *slackBot) handleNewsSubmission(ctx context.Context, cmd SlashCommand) (
 		}, nil
 	}
 
-	// TODO: Store the news submission in database
-	// For now, just acknowledge the submission
+	// Store the news submission in database if SubmissionManager is available
+	if b.submissionManager != nil {
+		_, err := b.submissionManager.CreateNewsSubmission(ctx, cmd.UserID, newsContent)
+		if err != nil {
+			return &SlashCommandResponse{
+				Text:         fmt.Sprintf("❌ Failed to store your submission: %v", err),
+				ResponseType: "ephemeral",
+			}, nil
+		}
+	}
 
 	return &SlashCommandResponse{
 		Text:         fmt.Sprintf("📰 *News submission received!*\n\n> %s\n\n✅ Your story has been submitted for the newsletter. Thanks for contributing!", newsContent),

@@ -34,9 +34,9 @@ func TestNewWithConfig(t *testing.T) {
 	dbPath := filepath.Join(tempDir, "test.db")
 
 	cfg := Config{
-		DataSourceName:  dbPath,
-		MaxOpenConns:    10,
-		MaxIdleConns:    2,
+		DataSourceName: dbPath,
+		MaxOpenConns:   10,
+		MaxIdleConns:   2,
 	}
 
 	db, err := New(cfg)
@@ -116,7 +116,7 @@ func TestSubmissionCRUD(t *testing.T) {
 	// Test: Create submission
 	submission := &Submission{
 		UserID:     "user123",
-		QuestionID: questionID,
+		QuestionID: &questionID,
 		Content:    "Go is pretty neat, though verbose",
 	}
 
@@ -162,5 +162,56 @@ func TestSubmissionCRUD(t *testing.T) {
 	_, err = db.GetSubmission(submissionID)
 	if err == nil {
 		t.Fatal("Expected error when getting deleted submission")
+	}
+}
+
+// TDD: Test for creating news submissions without question_id
+// This test should FAIL initially because the database doesn't support NULL question_id
+func TestCreateNewsSubmissionWithoutQuestion(t *testing.T) {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	db, err := NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("NewSimple() failed: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	// Test: Create news submission without question_id
+	userID := "U123456789"
+	content := "Our team launched a new dashboard feature this week!"
+
+	// We need a way to create news submissions without linking to a specific question
+	// This should work once we implement it properly
+	submissionID, err := db.CreateNewsSubmission(userID, content)
+	if err != nil {
+		t.Fatalf("CreateNewsSubmission() failed: %v", err)
+	}
+
+	if submissionID <= 0 {
+		t.Fatal("Expected valid submission ID for news submission")
+	}
+
+	// Test: Verify the submission was stored correctly
+	retrieved, err := db.GetSubmission(submissionID)
+	if err != nil {
+		t.Fatalf("GetSubmission() failed: %v", err)
+	}
+
+	if retrieved.UserID != userID {
+		t.Errorf("Expected UserID %s, got %s", userID, retrieved.UserID)
+	}
+
+	if retrieved.Content != content {
+		t.Errorf("Expected Content %s, got %s", content, retrieved.Content)
+	}
+
+	// For news submissions, question_id should be NULL
+	if retrieved.QuestionID != nil {
+		t.Errorf("Expected QuestionID to be nil for news submission, got %v", *retrieved.QuestionID)
 	}
 }

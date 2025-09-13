@@ -77,7 +77,7 @@ func (db *DB) Migrate() error {
 		version INTEGER PRIMARY KEY,
 		applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 	)`
-	
+
 	if _, err := db.Exec(migrationTableSQL); err != nil {
 		return fmt.Errorf("failed to create migrations table: %w", err)
 	}
@@ -122,7 +122,116 @@ func (db *DB) Migrate() error {
 		return fmt.Errorf("failed to record migration: %w", err)
 	}
 
+	// Run migration 2: Make question_id nullable
+	var hasNullableMigration int
+	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = 2").Scan(&hasNullableMigration); err != nil {
+		return fmt.Errorf("failed to check migration 2: %w", err)
+	}
+
+	if hasNullableMigration == 0 {
+		nullableMigration := `
+		-- Make question_id nullable to support general news submissions
+		-- SQLite doesn't support ALTER COLUMN directly, so we need to recreate the table
+
+		-- Create new submissions table with nullable question_id
+		CREATE TABLE submissions_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			user_id TEXT NOT NULL,
+			question_id INTEGER, -- Now nullable
+			content TEXT NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (question_id) REFERENCES questions(id)
+		);
+
+		-- Copy existing data
+		INSERT INTO submissions_new (id, user_id, question_id, content, created_at)
+		SELECT id, user_id, question_id, content, created_at FROM submissions;
+
+		-- Drop old table and rename new one
+		DROP TABLE submissions;
+		ALTER TABLE submissions_new RENAME TO submissions;`
+
+		if _, err := db.Exec(nullableMigration); err != nil {
+			return fmt.Errorf("failed to run migration 2: %w", err)
+		}
+
+		// Mark migration as applied
+		if _, err := db.Exec("INSERT INTO schema_migrations (version) VALUES (2)"); err != nil {
+			return fmt.Errorf("failed to record migration 2: %w", err)
+		}
+	}
+
+	// Run migration 3: Add processed_articles table for AI-generated content
+	var hasProcessedArticlesMigration int
+	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = 3").Scan(&hasProcessedArticlesMigration); err != nil {
+		return fmt.Errorf("failed to check migration 3: %w", err)
+	}
+
+	if hasProcessedArticlesMigration == 0 {
+		processedArticlesMigration := `
+		-- Migration 3: Add processed_articles table for AI-generated content
+		CREATE TABLE IF NOT EXISTS processed_articles (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			submission_id INTEGER NOT NULL,
+			newsletter_issue_id INTEGER,
+			
+			-- AI Processing data
+			journalist_type TEXT NOT NULL,
+			processed_content TEXT,
+			processing_prompt TEXT,
+			
+			-- Template formatting (separate from content)
+			template_format TEXT NOT NULL DEFAULT 'column',
+			
+			-- Manual retry system
+			processing_status TEXT NOT NULL DEFAULT 'pending',
+			error_message TEXT,
+			retry_count INTEGER NOT NULL DEFAULT 0,
+			
+			-- Metadata
+			word_count INTEGER NOT NULL DEFAULT 0,
+			processed_at DATETIME,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			
+			-- Foreign key constraints - NO CASCADE DELETE to preserve archives
+			FOREIGN KEY (submission_id) REFERENCES submissions(id),
+			FOREIGN KEY (newsletter_issue_id) REFERENCES newsletter_issues(id)
+		);
+
+		-- Indexes for common query patterns
+		CREATE INDEX IF NOT EXISTS idx_processed_articles_submission_id ON processed_articles(submission_id);
+		CREATE INDEX IF NOT EXISTS idx_processed_articles_status ON processed_articles(processing_status);
+		CREATE INDEX IF NOT EXISTS idx_processed_articles_newsletter_issue ON processed_articles(newsletter_issue_id);`
+
+		if _, err := db.Exec(processedArticlesMigration); err != nil {
+			return fmt.Errorf("failed to run migration 3: %w", err)
+		}
+
+		// Mark migration as applied
+		if _, err := db.Exec("INSERT INTO schema_migrations (version) VALUES (3)"); err != nil {
+			return fmt.Errorf("failed to record migration 3: %w", err)
+		}
+	}
+
 	return nil
+}
+
+// CreateNewsSubmission creates a news submission without a specific question
+func (db *DB) CreateNewsSubmission(userID, content string) (int, error) {
+	result, err := db.Exec(
+		"INSERT INTO submissions (user_id, question_id, content) VALUES (?, NULL, ?)",
+		userID, content,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create news submission: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get news submission ID: %w", err)
+	}
+
+	return int(id), nil
 }
 
 // CreateQuestion creates a new question and returns its ID
@@ -164,16 +273,26 @@ func (db *DB) CreateSubmission(submission *Submission) (int, error) {
 // GetSubmission retrieves a submission by ID
 func (db *DB) GetSubmission(id int) (*Submission, error) {
 	var submission Submission
+	var questionID sql.NullInt64
+
 	err := db.QueryRow(
 		"SELECT id, user_id, question_id, content, created_at FROM submissions WHERE id = ?",
 		id,
-	).Scan(&submission.ID, &submission.UserID, &submission.QuestionID, &submission.Content, &submission.CreatedAt)
+	).Scan(&submission.ID, &submission.UserID, &questionID, &submission.Content, &submission.CreatedAt)
 
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("submission not found: %w", err)
 		}
 		return nil, fmt.Errorf("failed to get submission: %w", err)
+	}
+
+	// Handle nullable question_id
+	if questionID.Valid {
+		qid := int(questionID.Int64)
+		submission.QuestionID = &qid
+	} else {
+		submission.QuestionID = nil
 	}
 
 	return &submission, nil
@@ -192,10 +311,21 @@ func (db *DB) ListSubmissions() ([]*Submission, error) {
 	var submissions []*Submission
 	for rows.Next() {
 		var submission Submission
-		err := rows.Scan(&submission.ID, &submission.UserID, &submission.QuestionID, &submission.Content, &submission.CreatedAt)
+		var questionID sql.NullInt64
+
+		err := rows.Scan(&submission.ID, &submission.UserID, &questionID, &submission.Content, &submission.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan submission: %w", err)
 		}
+
+		// Handle nullable question_id
+		if questionID.Valid {
+			qid := int(questionID.Int64)
+			submission.QuestionID = &qid
+		} else {
+			submission.QuestionID = nil
+		}
+
 		submissions = append(submissions, &submission)
 	}
 

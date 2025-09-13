@@ -14,6 +14,7 @@ type Config struct {
 	SlackSigningSecret string
 	AdminUsers         []string
 	DatabasePath       string
+	AnthropicAPIKey    string
 }
 
 func Load() *Config {
@@ -29,12 +30,16 @@ func Load() *Config {
 		SlackSigningSecret: getEnv("SLACK_SIGNING_SECRET", ""),
 		AdminUsers:         adminUsers,
 		DatabasePath:       getEnv("DATABASE_PATH", "newsletter.db"),
+		AnthropicAPIKey:    getEnv("ANTHROPIC_API_KEY", ""),
 	}
 }
 
 func (c *Config) Validate() error {
 	if c.SlackBotToken == "" {
 		return fmt.Errorf("SLACK_BOT_TOKEN is required")
+	}
+	if c.AnthropicAPIKey == "" {
+		return fmt.Errorf("ANTHROPIC_API_KEY is required")
 	}
 	return nil
 }
