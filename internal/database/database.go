@@ -213,6 +213,77 @@ func (db *DB) Migrate() error {
 		}
 	}
 
+	// Run migration 4: Add weekly newsletter automation tables
+	var hasWeeklyAutomationMigration int
+	if err := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version = 4").Scan(&hasWeeklyAutomationMigration); err != nil {
+		return fmt.Errorf("failed to check migration 4: %w", err)
+	}
+
+	if hasWeeklyAutomationMigration == 0 {
+		weeklyAutomationMigration := `
+		-- Migration 4: Add weekly newsletter automation tables
+		
+		-- Enhance newsletter_issues table for weekly automation
+		ALTER TABLE newsletter_issues ADD COLUMN week_number INTEGER;
+		ALTER TABLE newsletter_issues ADD COLUMN year INTEGER;
+		ALTER TABLE newsletter_issues ADD COLUMN status TEXT NOT NULL DEFAULT 'draft';
+		ALTER TABLE newsletter_issues ADD COLUMN publication_date DATETIME;
+
+		-- Create person_assignments table for weekly content assignments
+		CREATE TABLE IF NOT EXISTS person_assignments (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			issue_id INTEGER NOT NULL,
+			person_id TEXT NOT NULL,
+			content_type TEXT NOT NULL,
+			question_id INTEGER,
+			submission_id INTEGER,
+			assigned_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			
+			FOREIGN KEY (issue_id) REFERENCES newsletter_issues(id),
+			FOREIGN KEY (question_id) REFERENCES questions(id),
+			FOREIGN KEY (submission_id) REFERENCES submissions(id)
+		);
+
+		-- Create body_mind_questions table for anonymous wellness question pool
+		CREATE TABLE IF NOT EXISTS body_mind_questions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			question_text TEXT NOT NULL,
+			category TEXT NOT NULL DEFAULT 'wellness',
+			status TEXT NOT NULL DEFAULT 'active',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			used_at DATETIME
+		);
+
+		-- Create person_rotation_history table for intelligent assignment tracking  
+		CREATE TABLE IF NOT EXISTS person_rotation_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			person_id TEXT NOT NULL,
+			content_type TEXT NOT NULL,
+			week_number INTEGER NOT NULL,
+			year INTEGER NOT NULL,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+
+		-- Indexes for performance
+		CREATE INDEX IF NOT EXISTS idx_newsletter_issues_week_year ON newsletter_issues(week_number, year);
+		CREATE INDEX IF NOT EXISTS idx_newsletter_issues_status ON newsletter_issues(status);
+		CREATE INDEX IF NOT EXISTS idx_person_assignments_issue_id ON person_assignments(issue_id);
+		CREATE INDEX IF NOT EXISTS idx_person_assignments_person_id ON person_assignments(person_id);
+		CREATE INDEX IF NOT EXISTS idx_body_mind_questions_status ON body_mind_questions(status);
+		CREATE INDEX IF NOT EXISTS idx_person_rotation_history_person_type ON person_rotation_history(person_id, content_type);
+		CREATE INDEX IF NOT EXISTS idx_person_rotation_history_week_year ON person_rotation_history(week_number, year);`
+
+		if _, err := db.Exec(weeklyAutomationMigration); err != nil {
+			return fmt.Errorf("failed to run migration 4: %w", err)
+		}
+
+		// Mark migration as applied
+		if _, err := db.Exec("INSERT INTO schema_migrations (version) VALUES (4)"); err != nil {
+			return fmt.Errorf("failed to record migration 4: %w", err)
+		}
+	}
+
 	return nil
 }
 

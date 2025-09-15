@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/olle-forsslof/kumpan-newspaper/internal/ai"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
 	"github.com/slack-go/slack"
 )
@@ -17,6 +18,8 @@ type slackBot struct {
 	config            SlackConfig
 	adminHandler      *AdminHandler
 	submissionManager SubmissionManager
+	aiProcessor       AIProcessor
+	questionSelector  QuestionSelector
 }
 
 type QuestionSelector interface {
@@ -24,6 +27,7 @@ type QuestionSelector interface {
 	MarkQuestionUsed(ctx context.Context, questionID int) error
 	GetQuestionsByCategory(ctx context.Context, category string) ([]database.Question, error)
 	AddQuestion(ctx context.Context, text, category string) (*database.Question, error)
+	GetQuestionByID(ctx context.Context, questionID int) (*database.Question, error)
 }
 
 type SubmissionManager interface {
@@ -39,6 +43,8 @@ func NewBot(cfg SlackConfig, questionSelector QuestionSelector, adminUsers []str
 		config:            cfg,
 		adminHandler:      NewAdminHandler(questionSelector, adminUsers),
 		submissionManager: nil, // No submission manager for basic bot
+		aiProcessor:       nil, // No AI processor for basic bot
+		questionSelector:  questionSelector,
 	}
 }
 
@@ -49,6 +55,20 @@ func NewBotWithSubmissions(cfg SlackConfig, questionSelector QuestionSelector, a
 		config:            cfg,
 		adminHandler:      NewAdminHandler(questionSelector, adminUsers),
 		submissionManager: submissionManager,
+		aiProcessor:       nil,
+		questionSelector:  questionSelector,
+	}
+}
+
+// NewBotWithAIProcessing creates a bot with automatic AI processing capabilities
+func NewBotWithAIProcessing(cfg SlackConfig, questionSelector QuestionSelector, adminUsers []string, submissionManager SubmissionManager, aiProcessor AIProcessor) Bot {
+	return &slackBot{
+		client:            nil,
+		config:            cfg,
+		adminHandler:      NewAdminHandler(questionSelector, adminUsers),
+		submissionManager: submissionManager,
+		aiProcessor:       aiProcessor,
+		questionSelector:  questionSelector,
 	}
 }
 
@@ -130,6 +150,55 @@ func (b *slackBot) handleRegularHelp() *SlashCommandResponse {
 	}
 }
 
+func (b *slackBot) GetUserInfo(ctx context.Context, userID string) (*UserInfo, error) {
+	// Initialize client only when actually needed
+	if b.client == nil {
+		b.client = slack.New(b.config.Token)
+	}
+
+	user, err := b.client.GetUserInfoContext(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user info: %w", err)
+	}
+
+	return &UserInfo{
+		ID:       user.ID,
+		Name:     user.Name,
+		RealName: user.RealName,
+		Profile: UserProfile{
+			Email:     user.Profile.Email,
+			Title:     user.Profile.Title,
+			RealName:  user.Profile.RealName,
+			FirstName: user.Profile.FirstName,
+			LastName:  user.Profile.LastName,
+		},
+	}, nil
+}
+
+func (b *slackBot) EnrichSubmissionWithUserInfo(ctx context.Context, userID, content string) (*EnrichedSubmission, error) {
+	userInfo, err := b.GetUserInfo(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user info: %w", err)
+	}
+
+	// Use title as department, fallback to email domain if title is empty
+	department := userInfo.Profile.Title
+	if department == "" && userInfo.Profile.Email != "" {
+		// Extract domain from email as fallback department info
+		if atIndex := strings.Index(userInfo.Profile.Email, "@"); atIndex > 0 {
+			department = strings.Split(userInfo.Profile.Email[atIndex+1:], ".")[0]
+		}
+	}
+
+	return &EnrichedSubmission{
+		UserID:           userID,
+		Content:          content,
+		AuthorName:       userInfo.RealName,
+		AuthorEmail:      userInfo.Profile.Email,
+		AuthorDepartment: department,
+	}, nil
+}
+
 func (b *slackBot) handleNewsSubmission(ctx context.Context, cmd SlashCommand) (*SlashCommandResponse, error) {
 	// Extract the news content (everything after "submit ")
 	newsContent := strings.TrimSpace(strings.TrimPrefix(cmd.Text, "submit "))
@@ -141,19 +210,90 @@ func (b *slackBot) handleNewsSubmission(ctx context.Context, cmd SlashCommand) (
 		}, nil
 	}
 
+	var responseText string
+	var submission *database.Submission
+
 	// Store the news submission in database if SubmissionManager is available
 	if b.submissionManager != nil {
-		_, err := b.submissionManager.CreateNewsSubmission(ctx, cmd.UserID, newsContent)
+		var err error
+		submission, err = b.submissionManager.CreateNewsSubmission(ctx, cmd.UserID, newsContent)
 		if err != nil {
 			return &SlashCommandResponse{
 				Text:         fmt.Sprintf("❌ Failed to store your submission: %v", err),
 				ResponseType: "ephemeral",
 			}, nil
 		}
+		responseText = fmt.Sprintf("📰 *News submission received!*\n\n> %s\n\n", newsContent)
+	} else {
+		responseText = fmt.Sprintf("📰 *News submission received!*\n\n> %s\n\n", newsContent)
 	}
 
+	// Automatically process with AI if AIProcessor is available
+	if b.aiProcessor != nil && submission != nil {
+		// Get user information for enriched processing
+		enrichedSubmission, err := b.EnrichSubmissionWithUserInfo(ctx, cmd.UserID, newsContent)
+
+		// Use fallback user info if enrichment fails
+		authorName := "Team Member"
+		authorDepartment := "Unknown"
+
+		if err != nil {
+			// Log error but continue with fallback values
+			responseText += fmt.Sprintf("⚠️ Note: Using fallback user info (couldn't fetch from Slack): %v\n", err)
+		} else {
+			authorName = enrichedSubmission.AuthorName
+			authorDepartment = enrichedSubmission.AuthorDepartment
+		}
+
+		// Determine journalist type from question category
+		journalistType := b.determineJournalistTypeFromSubmission(ctx, submission)
+
+		// Process with AI
+		processedArticle, err := b.aiProcessor.ProcessSubmissionWithUserInfo(
+			ctx,
+			*submission,
+			authorName,
+			authorDepartment,
+			journalistType,
+		)
+
+		if err != nil {
+			// Log error but don't fail the submission - processing can be retried later
+			responseText += fmt.Sprintf("⚠️ Note: Auto-processing failed (AI): %v\n", err)
+		} else {
+			responseText += fmt.Sprintf("🤖 Auto-processed by %s journalist (%d words)\n", journalistType, processedArticle.WordCount)
+		}
+	}
+
+	responseText += "✅ Thanks for contributing!"
+
 	return &SlashCommandResponse{
-		Text:         fmt.Sprintf("📰 *News submission received!*\n\n> %s\n\n✅ Your story has been submitted for the newsletter. Thanks for contributing!", newsContent),
+		Text:         responseText,
 		ResponseType: "ephemeral",
 	}, nil
 }
+
+// determineJournalistTypeFromSubmission determines journalist type based on question category
+func (b *slackBot) determineJournalistTypeFromSubmission(ctx context.Context, submission *database.Submission) string {
+	// If no question ID, this is a general news submission
+	if submission.QuestionID == nil {
+		return "general"
+	}
+
+	// Get the question to find its category
+	if b.questionSelector != nil {
+		question, err := b.questionSelector.GetQuestionByID(ctx, *submission.QuestionID)
+		if err != nil {
+			// If we can't get the question, default to general
+			return "general"
+		}
+
+		// Map question category to journalist type using existing mapping
+		return ai.GetJournalistTypeForCategory(question.Category)
+	}
+
+	// Fallback to general if no question selector available
+	return "general"
+}
+
+// determineJournalistType is deprecated - use determineJournalistTypeFromSubmission instead

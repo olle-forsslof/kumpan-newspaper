@@ -29,12 +29,12 @@ func main() {
 		content string
 	}{
 		{
-			name:    "Kollega luktar",
-			content: "Jag har en kollega som har en stark lukt. Jag vet inte hur jag ska hantera detta. Har du några tips?",
+			name:    "Jobbkänslor",
+			content: "Jag gillar en på mitt jobb, men jag vet inte om den personen gillar mig. Vad ska jag säga för att ta reda på dens känslor utan att avslöja mina egna, och samtidigt charma den andre?",
 		},
 		{
-			name:    "Jobb- och livsbalans",
-			content: "Jag har jobbat mycket hela mitt liv, och nu vill min fru att jag ska gå ner i arbetstid. Men jag vill egentligen spendera mindre tid med min fru, och mer tid med jobb. Hur ska jag berätta detta för henne på bästa sätt?",
+			name:    "Djupare diskussioner",
+			content: "Jag skulle vilja prata om djupare, mer existentiella ämnen med mina vänner. Dom pratar bara om tvserier. Hur ska jag göra?",
 		},
 	}
 

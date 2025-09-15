@@ -29,12 +29,12 @@ func main() {
 		content string
 	}{
 		{
-			name:    "Skyddsrond",
-			content: "I nästa vecka ska vi ha en arbetsmiljörond. Det är första gången på två år. Vi ämnar bli bättre.",
+			name:    "Lunch",
+			content: "Jag åt en wrap med falafel från coop. Den får 5 / 10.",
 		},
 		{
-			name:    "Event",
-			content: "Vi planerar att ta alla till bio aspen i Aspudden och se en film. Vi skulle då ha salongen för oss själva, tillgång till baren utanför, och vi kan se typ villken film som helst. Förslag på datum kommer komma i slackchatten inom kort.",
+			name:    "Bästa dagen",
+			content: "Jag skulle nog säga onsdag är den bästa dagen. Mitt i veckan, inte så långt kvar till helgen. Och ibland är det brädspelskväll.",
 		},
 		{
 			name:    "Parkering",

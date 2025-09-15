@@ -119,11 +119,11 @@ func (qs *QuestionSelector) AddQuestion(ctx context.Context, text, category stri
 	}
 
 	// Query back the created question
-	return qs.getQuestionByID(ctx, int(id))
+	return qs.GetQuestionByID(ctx, int(id))
 }
 
-// getQuestionByID is a helper method to retrieve a question by ID
-func (qs *QuestionSelector) getQuestionByID(ctx context.Context, id int) (*Question, error) {
+// GetQuestionByID retrieves a question by ID
+func (qs *QuestionSelector) GetQuestionByID(ctx context.Context, id int) (*Question, error) {
 	query := `SELECT id, text, category, last_used_at, created_at FROM questions WHERE id = ?`
 
 	var q Question

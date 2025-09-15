@@ -95,6 +95,75 @@ func (a *AnthropicService) ProcessSubmission(ctx context.Context, submission dat
 	return article, nil
 }
 
+// ProcessSubmissionWithUserInfo transforms a submission with user context into structured JSON article
+func (a *AnthropicService) ProcessSubmissionWithUserInfo(ctx context.Context, submission database.Submission, authorName, authorDepartment, journalistType string) (*database.ProcessedArticle, error) {
+	// Validate journalist type
+	if !a.ValidateJournalistType(journalistType) {
+		return nil, NewProcessingError("invalid_journalist_type",
+			fmt.Sprintf("invalid journalist type: %s", journalistType), false, nil)
+	}
+
+	// Get journalist profile
+	profile, err := GetJournalistProfile(journalistType)
+	if err != nil {
+		return nil, NewProcessingError("profile_error", "failed to get journalist profile", false, err)
+	}
+
+	// Build the JSON prompt with user information
+	prompt, err := BuildJSONPrompt(submission.Content, authorName, authorDepartment, journalistType)
+	if err != nil {
+		return nil, NewProcessingError("prompt_error", "failed to build JSON prompt", false, err)
+	}
+
+	// Create context with timeout
+	ctx, cancel := context.WithTimeout(ctx, a.timeout)
+	defer cancel()
+
+	// Call Anthropic API
+	response, err := a.callAnthropicAPI(ctx, prompt)
+	if err != nil {
+		return nil, err // Already wrapped as ProcessingError
+	}
+
+	// Process the JSON response
+	processedContent := strings.TrimSpace(response.ProcessedContent)
+
+	// Parse and validate the JSON response
+	parsedResponse, err := ParseJSONResponse(processedContent, journalistType)
+	if err != nil {
+		return nil, NewProcessingError("invalid_json_response",
+			"AI response is not valid JSON", true, err)
+	}
+
+	// Validate response length
+	if parsedResponse.WordCount > profile.MaxWords+50 { // Allow 50 word buffer
+		return nil, NewProcessingError("content_too_long",
+			fmt.Sprintf("generated content exceeds maximum words: %d > %d", parsedResponse.WordCount, profile.MaxWords),
+			true, nil)
+	}
+
+	if parsedResponse.WordCount < 5 {
+		return nil, NewProcessingError("content_too_short",
+			"generated content is too short", true, nil)
+	}
+
+	// Create processed article with JSON content
+	now := time.Now()
+	article := &database.ProcessedArticle{
+		SubmissionID:     submission.ID,
+		JournalistType:   journalistType,
+		ProcessedContent: processedContent, // Store the raw JSON string
+		ProcessingPrompt: prompt,
+		TemplateFormat:   profile.TemplateFormat,
+		ProcessingStatus: database.ProcessingStatusSuccess,
+		WordCount:        parsedResponse.WordCount,
+		ProcessedAt:      &now,
+		RetryCount:       0,
+	}
+
+	return article, nil
+}
+
 // callAnthropicAPI makes the actual API call with proper error handling
 func (a *AnthropicService) callAnthropicAPI(ctx context.Context, prompt string) (*ProcessingResult, error) {
 	response, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{

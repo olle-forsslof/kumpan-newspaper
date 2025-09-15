@@ -107,3 +107,34 @@ func (m *MockBot) GetMessages() []string {
 func (m *MockBot) GetLastChannelID() string {
 	return m.lastChannelID
 }
+
+func (m *MockBot) GetUserInfo(ctx context.Context, userID string) (*UserInfo, error) {
+	// Return mock user info for testing
+	return &UserInfo{
+		ID:       userID,
+		Name:     "testuser",
+		RealName: "Test User",
+		Profile: UserProfile{
+			Email:     "testuser@company.com",
+			Title:     "Software Developer",
+			RealName:  "Test User",
+			FirstName: "Test",
+			LastName:  "User",
+		},
+	}, nil
+}
+
+func (m *MockBot) EnrichSubmissionWithUserInfo(ctx context.Context, userID, content string) (*EnrichedSubmission, error) {
+	userInfo, err := m.GetUserInfo(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &EnrichedSubmission{
+		UserID:           userID,
+		Content:          content,
+		AuthorName:       userInfo.RealName,
+		AuthorEmail:      userInfo.Profile.Email,
+		AuthorDepartment: userInfo.Profile.Title,
+	}, nil
+}

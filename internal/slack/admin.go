@@ -12,6 +12,9 @@ type AdminHandler struct {
 	questionSelector  QuestionSelector
 	authorizedUsers   []string // Slack user IDs who can run admin commands
 	submissionManager SubmissionManager
+	db                *database.DB                  // Add database access for weekly automation
+	poolManager       *database.BodyMindPoolManager // Body/mind question pool
+	broadcastManager  *BroadcastManager             // Broadcast messaging system
 }
 
 type AdminCommand struct {
@@ -34,6 +37,23 @@ func NewAdminHandlerWithSubmissions(questionSelector QuestionSelector, authorize
 		questionSelector:  questionSelector,
 		authorizedUsers:   authorizedUsers,
 		submissionManager: submissionManager,
+		db:                nil,
+		poolManager:       nil,
+		broadcastManager:  nil,
+	}
+}
+
+// NewAdminHandlerWithWeeklyAutomation creates a handler with full weekly automation capabilities
+func NewAdminHandlerWithWeeklyAutomation(questionSelector QuestionSelector, authorizedUsers []string, submissionManager SubmissionManager, db *database.DB, slackToken string) *AdminHandler {
+	poolManager := database.NewBodyMindPoolManager(db)
+	broadcastManager := NewBroadcastManager(slackToken)
+	return &AdminHandler{
+		questionSelector:  questionSelector,
+		authorizedUsers:   authorizedUsers,
+		submissionManager: submissionManager,
+		db:                db,
+		poolManager:       poolManager,
+		broadcastManager:  broadcastManager,
 	}
 }
 
@@ -118,6 +138,17 @@ func (ah *AdminHandler) HandleAdminCommand(ctx context.Context, userID string, c
 		return ah.handleTestRotation(ctx, cmd.Args)
 	case "list-submissions":
 		return ah.handleListSubmissions(ctx, cmd.Args)
+
+	// Weekly automation commands
+	case "assign-week":
+		return ah.handleAssignWeek(ctx, cmd.Args)
+	case "week-status":
+		return ah.handleWeekStatus(ctx, cmd.Args)
+	case "pool-status":
+		return ah.handlePoolStatus(ctx, cmd.Args)
+	case "broadcast-bodymind":
+		return ah.handleBroadcastBodyMind(ctx, cmd.Args)
+
 	default:
 		return ah.handleHelp()
 	}
@@ -177,6 +208,12 @@ func (ah *AdminHandler) handleHelp() (*SlashCommandResponse, error) {
      • admin list-submissions - Show all news submissions
      • admin list-submissions [user_id] - Show submissions by specific user
 
+**Weekly Automation:**
+     • admin assign-week [feature|general] [@user1 @user2] - Manual assignment override
+     • admin week-status - Current week dashboard with assignments and status
+     • admin pool-status - Anonymous body/mind question pool levels and activity
+     • admin broadcast-bodymind - Send wellness question request to all users
+
 **Other:**
      • admin help - Show this help message
 
@@ -184,7 +221,9 @@ func (ah *AdminHandler) handleHelp() (*SlashCommandResponse, error) {
      > admin add-question "What did you accomplish this week?" work
      > admin list-questions fun
      > admin list-submissions
-     > admin list-submissions U123456789`
+     > admin assign-week feature @john.doe
+     > admin week-status
+     > admin pool-status`
 
 	return &SlashCommandResponse{
 		Text:         help,
@@ -325,6 +364,124 @@ func (ah *AdminHandler) handleListSubmissions(ctx context.Context, args []string
 
 	return &SlashCommandResponse{
 		Text:         response.String(),
+		ResponseType: "ephemeral",
+	}, nil
+}
+
+// Weekly automation command handlers
+
+// handleAssignWeek handles manual assignment overrides for current week
+func (ah *AdminHandler) handleAssignWeek(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+	if ah.db == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Weekly automation is not available.",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	if len(args) < 2 {
+		return &SlashCommandResponse{
+			Text:         "Usage: admin assign-week [feature|general] [@user1 @user2 ...]\nExample: admin assign-week feature @john.doe",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	contentType := args[0]
+	users := args[1:]
+
+	// Validate content type
+	validContentTypes := map[string]bool{
+		"feature": true,
+		"general": true,
+	}
+
+	if !validContentTypes[contentType] {
+		return &SlashCommandResponse{
+			Text:         "❌ Content type must be 'feature' or 'general'",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// TODO: Implement the actual assignment logic
+	return &SlashCommandResponse{
+		Text: fmt.Sprintf("🚧 Week assignment not fully implemented yet.\n"+
+			"Would assign %s content to: %s", contentType, strings.Join(users, ", ")),
+		ResponseType: "ephemeral",
+	}, nil
+}
+
+// handleWeekStatus shows current week dashboard with assignments and submission status
+func (ah *AdminHandler) handleWeekStatus(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+	if ah.db == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Weekly automation is not available.",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// TODO: Implement the actual week status logic
+	return &SlashCommandResponse{
+		Text: "🚧 Week status not fully implemented yet.\n" +
+			"Would show current week assignments and submission status.",
+		ResponseType: "ephemeral",
+	}, nil
+}
+
+// handlePoolStatus shows anonymous body/mind question pool levels and activity metrics
+func (ah *AdminHandler) handlePoolStatus(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+	if ah.poolManager == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Body/mind pool management is not available.",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	status, err := ah.poolManager.GetPoolStatus()
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to get pool status: %v", err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	slackMessage := ah.poolManager.FormatPoolStatusForSlack(status)
+
+	return &SlashCommandResponse{
+		Text:         slackMessage,
+		ResponseType: "ephemeral",
+	}, nil
+}
+
+// handleBroadcastBodyMind sends anonymous wellness question request to all users
+func (ah *AdminHandler) handleBroadcastBodyMind(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+	if ah.broadcastManager == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Broadcast messaging is not available.",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Send the broadcast
+	result, err := ah.broadcastManager.BroadcastBodyMindRequest(ctx)
+	if err != nil {
+		// Even if some sends failed, we still want to report what happened
+		if result != nil {
+			return &SlashCommandResponse{
+				Text: fmt.Sprintf("⚠️ *Body/Mind Question Broadcast - Partial Success*\n\n%s\n\nError: %v",
+					result.GetDetailedReport(), err),
+				ResponseType: "ephemeral",
+			}, nil
+		}
+
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to send broadcast: %v", err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Success - return summary
+	return &SlashCommandResponse{
+		Text:         fmt.Sprintf("✅ *Body/Mind Question Broadcast Complete*\n\n%s", result.GetSummary()),
 		ResponseType: "ephemeral",
 	}, nil
 }

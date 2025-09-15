@@ -1,6 +1,9 @@
 package ai
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // JournalistProfile defines a journalist personality with specific writing style and constraints
 type JournalistProfile struct {
@@ -50,7 +53,7 @@ var JournalistProfiles = map[string]JournalistProfile{
 		Type:              "body_mind",
 		Name:              "Body and Mind Columnist",
 		SystemPrompt:      `You are a desillusionized advice columnist specializing in body and mind wellness, on a web developer company called "Kumpan". You handle anonymous questions about life, relationships, physical concerns, mental health, sexuality, and personal struggles with lack luster. You respond to people seeking guidance on intimate, sometimes vulnerable topics. Your approach combines practical advice with philosophical insight, drawing from psychology, science, and human experience. You're not mean, but snarky. In the end, you know what's best for everyone else.`,
-		StyleInstructions: `Write with boredom, like you just want to get this answer in as few words as possible. Be true, but very short. If there's no clear solution, try and make up a "word of wisdom" that is really hard to interpret and understand. End with an encouraging sign-off. Create a witty, ironic and relevant pseudonym for the letter writer that relates to their situation. Keep responses 150 - 200 words, hardly conversational yet wise. Always answer in the Swedish language.`,
+		StyleInstructions: `You are tired, you've heard it all before. You just want to get this answer in as few words as possible. Be true, but very short. If there's no clear solution, try and make up a "word of wisdom" that is really hard to interpret and understand. End with an encouraging sign-off. Create a witty, ironic and relevant pseudonym for the letter writer that relates to their situation. Keep responses 150 - 200 words, hardly conversational yet wise. Always answer in the Swedish language.`,
 		MaxWords:          200,
 		TemplateFormat:    "advice",
 	},
@@ -79,7 +82,7 @@ func ValidateJournalistType(journalistType string) bool {
 	return exists
 }
 
-// BuildPrompt creates a complete prompt for AI processing
+// BuildPrompt creates a complete prompt for AI processing (legacy - use BuildJSONPrompt instead)
 func BuildPrompt(submission, journalistType string) (string, error) {
 	profile, err := GetJournalistProfile(journalistType)
 	if err != nil {
@@ -100,4 +103,135 @@ Return ONLY the processed article content. Do not include any preamble, explanat
 	)
 
 	return prompt, nil
+}
+
+// BuildJSONPrompt creates a complete prompt for AI processing with structured JSON output
+func BuildJSONPrompt(submission, authorName, authorDepartment, journalistType string) (string, error) {
+	profile, err := GetJournalistProfile(journalistType)
+	if err != nil {
+		return "", err
+	}
+
+	// Get journalist-specific JSON structure requirements
+	jsonStructure := getJSONStructureForJournalist(journalistType)
+	requiredFields := GetRequiredJSONFields(journalistType)
+
+	prompt := fmt.Sprintf(`%s
+
+%s
+
+Author Information:
+- Name: %s
+- Department: %s
+
+Original submission to transform:
+"%s"
+
+CRITICAL: You MUST return your response as valid JSON in the following structure:
+%s
+
+Required fields: %v
+
+Example JSON format:
+{
+  "headline": "Your catchy headline here",
+  "lead": "Your engaging opening paragraph...",
+  "body": "Main content of the article...",
+  "byline": "%s"
+}
+
+Return ONLY valid JSON. No preamble, explanation, or additional text. The JSON must be parseable and contain all required fields.`,
+		profile.SystemPrompt,
+		profile.StyleInstructions,
+		authorName,
+		authorDepartment,
+		submission,
+		jsonStructure,
+		requiredFields,
+		profile.Name,
+	)
+
+	return prompt, nil
+}
+
+// GetRequiredJSONFields returns the required JSON fields for a journalist type
+func GetRequiredJSONFields(journalistType string) []string {
+	switch journalistType {
+	case "feature":
+		return []string{"headline", "lead", "body", "byline"}
+	case "interview":
+		return []string{"headline", "introduction", "questions", "byline"}
+	case "general":
+		return []string{"headline", "body", "byline"}
+	case "body_mind":
+		return []string{"headline", "response", "signoff", "byline"}
+	default:
+		return []string{"headline", "body", "byline"} // Default structure
+	}
+}
+
+// ValidateJSONResponse validates that the JSON response contains required fields
+func ValidateJSONResponse(jsonResponse, journalistType string) error {
+	// Parse JSON
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(jsonResponse), &parsed); err != nil {
+		return fmt.Errorf("invalid JSON format: %w", err)
+	}
+
+	// Check required fields
+	requiredFields := GetRequiredJSONFields(journalistType)
+	for _, field := range requiredFields {
+		if _, exists := parsed[field]; !exists {
+			return fmt.Errorf("missing required field: %s", field)
+		}
+
+		// Ensure field is not empty
+		if str, ok := parsed[field].(string); ok && str == "" {
+			return fmt.Errorf("required field %s cannot be empty", field)
+		}
+	}
+
+	return nil
+}
+
+// getJSONStructureForJournalist returns the JSON structure description for a journalist type
+func getJSONStructureForJournalist(journalistType string) string {
+	switch journalistType {
+	case "feature":
+		return `{
+  "headline": "Catchy, engaging headline",
+  "lead": "Strong opening paragraph that hooks the reader",
+  "body": "Main article content with human interest angle",
+  "byline": "Erik Lindqvist, Feature Writer"
+}`
+	case "interview":
+		return `{
+  "headline": "Interview-style headline",
+  "introduction": "Brief introduction to the interview",
+  "questions": [
+    {"q": "Question text", "a": "Answer text"},
+    {"q": "Follow-up question", "a": "Response"}
+  ],
+  "byline": "Anna Bergström, Interview Specialist"
+}`
+	case "general":
+		return `{
+  "headline": "Clear, informative headline",
+  "body": "Straightforward news content",
+  "byline": "Lars Petersson, Staff Reporter"
+}`
+	case "body_mind":
+		return `{
+  "headline": "Question or topic headline",
+  "response": "Advice response content", 
+  "signoff": "Snarky but encouraging closing",
+  "byline": "Dr. Astrid Holmberg, Body & Mind Columnist"
+}`
+	default:
+		return `{
+  "headline": "Article headline",
+  "body": "Article content",
+  "byline": "Staff Writer"
+}`
+	}
 }
