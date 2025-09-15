@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# Build artifacts
+server
+main
+
+# Development files
+.DS_Store
+*.tmp
+*.temp
+
+# Data files
+data/
+*.db
+
+# Test files and coverage
+*_test.go
+coverage.out
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
