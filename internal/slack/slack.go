@@ -72,6 +72,18 @@ func NewBotWithAIProcessing(cfg SlackConfig, questionSelector QuestionSelector, 
 	}
 }
 
+// NewBotWithWeeklyAutomation creates a bot with full weekly automation capabilities
+func NewBotWithWeeklyAutomation(cfg SlackConfig, questionSelector QuestionSelector, adminUsers []string, submissionManager SubmissionManager, aiProcessor AIProcessor, db *database.DB) Bot {
+	return &slackBot{
+		client:            nil,
+		config:            cfg,
+		adminHandler:      NewAdminHandlerWithWeeklyAutomation(questionSelector, adminUsers, submissionManager, db, cfg.Token),
+		submissionManager: submissionManager,
+		aiProcessor:       aiProcessor,
+		questionSelector:  questionSelector,
+	}
+}
+
 func (b *slackBot) SendMessage(ctx context.Context, channelID, text string) error {
 	// Initialize client only when actually needed
 	if b.client == nil {

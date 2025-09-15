@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/olle-forsslof/kumpan-newspaper/internal/ai"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/config"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/server"
@@ -35,11 +36,16 @@ func main() {
 	}
 
 	questionSelector := database.NewQuestionSelector(db.DB)
+	submissionManager := database.NewSubmissionManager(db.DB)
 
-	slackBot := slack.NewBot(slack.SlackConfig{
+	// Create AI processor (AnthropicService implements the AIProcessor interface)
+	aiProcessor := ai.NewAnthropicService(cfg.AnthropicAPIKey)
+
+	// Create bot with full weekly automation capabilities
+	slackBot := slack.NewBotWithWeeklyAutomation(slack.SlackConfig{
 		Token:         cfg.SlackBotToken,
 		SigningSecret: cfg.SlackSigningSecret,
-	}, questionSelector, cfg.AdminUsers)
+	}, questionSelector, cfg.AdminUsers, submissionManager, aiProcessor, db)
 
 	// create server with dependencies - pass the slackBot
 	srv := server.NewWithBot(cfg, logger, slackBot) //  You'll need to create this method
