@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 
+	"github.com/olle-forsslof/kumpan-newspaper/internal/ai"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
 )
 
@@ -68,12 +69,8 @@ type EnrichedSubmission struct {
 }
 
 // AIProcessor defines interface for AI content processing
-type AIProcessor interface {
-	ProcessSubmissionWithUserInfo(ctx context.Context, submission database.Submission, authorName, authorDepartment, journalistType string) (*database.ProcessedArticle, error)
-	ProcessAndSaveSubmission(ctx context.Context, db *database.DB, submission database.Submission, authorName, authorDepartment, journalistType string, newsletterIssueID *int) error
-	GetAvailableJournalists() []string
-	ValidateJournalistType(journalistType string) bool
-}
+// This is an alias to the EnhancedAIService interface in the ai package
+type AIProcessor = ai.EnhancedAIService
 
 // DatabaseInterface defines interface for database operations needed by SlackBot
 type DatabaseInterface interface {

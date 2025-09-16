@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/olle-forsslof/kumpan-newspaper/internal/ai"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
 )
 
@@ -265,8 +266,21 @@ func (m *MockAIService) ValidateJournalistType(journalistType string) bool {
 	return true
 }
 
-func (m *MockAIService) GetJournalistProfile(journalistType string) (*database.ProcessedArticle, error) {
+func (m *MockAIService) GetJournalistProfile(journalistType string) (*ai.JournalistProfile, error) {
 	return nil, nil
+}
+
+// Add missing ProcessAndSaveSubmission method to implement AIProcessor interface
+func (m *MockAIService) ProcessAndSaveSubmission(
+	ctx context.Context,
+	db *database.DB,
+	submission database.Submission,
+	authorName, authorDepartment, journalistType string,
+	newsletterIssueID *int,
+) error {
+	// For basic mock, just return nil (success)
+	// Individual tests can override this behavior if needed
+	return nil
 }
 
 // Ensure MockAIService implements AIProcessor interface
@@ -325,6 +339,18 @@ func (m *MockDatabase) GetOrCreateWeeklyIssue(weekNumber, year int) (*database.W
 	m.WeeklyIssues[key] = issue
 
 	return issue, nil
+}
+
+// Add missing CreateProcessedArticle method to implement DatabaseInterface
+func (m *MockDatabase) CreateProcessedArticle(article database.ProcessedArticle) (int, error) {
+	// Generate a new ID
+	newID := len(m.ProcessedArticles) + 1
+	article.ID = newID
+
+	// Add to our mock storage
+	m.ProcessedArticles = append(m.ProcessedArticles, article)
+
+	return newID, nil
 }
 
 // Ensure MockDatabase implements DatabaseInterface
