@@ -1,0 +1,16 @@
+{{define "article-sports"}}
+<div class="sports-article">
+    {{with .FormattedContent}}
+    <h3 class="sports-headline">{{.headline}}</h3>
+    {{if .byline}}
+    <p class="sports-byline">{{.byline}}</p>
+    {{end}}
+    
+    {{if .content}}
+    <div class="sports-content">
+        {{safeHTML .content}}
+    </div>
+    {{end}}
+    {{end}}
+</div>
+{{end}}

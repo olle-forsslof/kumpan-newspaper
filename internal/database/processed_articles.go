@@ -299,3 +299,70 @@ func (db *DB) GetProcessedArticlesBySubmissionID(submissionID int) ([]ProcessedA
 
 	return articles, nil
 }
+
+// GetProcessedArticlesByNewsletterIssue retrieves all processed articles for a specific newsletter issue
+func (db *DB) GetProcessedArticlesByNewsletterIssue(issueID int) ([]ProcessedArticle, error) {
+	query := `
+		SELECT id, submission_id, newsletter_issue_id, journalist_type, processed_content,
+			   processing_prompt, template_format, processing_status, error_message,
+			   retry_count, word_count, processed_at, created_at
+		FROM processed_articles 
+		WHERE newsletter_issue_id = ?
+		ORDER BY created_at ASC`
+
+	rows, err := db.Query(query, issueID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query processed articles by newsletter issue: %w", err)
+	}
+	defer rows.Close()
+
+	var articles []ProcessedArticle
+	for rows.Next() {
+		var article ProcessedArticle
+		var errorMessage sql.NullString
+		var processedContent sql.NullString
+		var processingPrompt sql.NullString
+		var processedAt sql.NullTime
+
+		err := rows.Scan(
+			&article.ID,
+			&article.SubmissionID,
+			&article.NewsletterIssueID,
+			&article.JournalistType,
+			&processedContent,
+			&processingPrompt,
+			&article.TemplateFormat,
+			&article.ProcessingStatus,
+			&errorMessage,
+			&article.RetryCount,
+			&article.WordCount,
+			&processedAt,
+			&article.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan processed article: %w", err)
+		}
+
+		// Handle nullable fields
+		if errorMessage.Valid {
+			article.ErrorMessage = &errorMessage.String
+		}
+		if processedContent.Valid {
+			article.ProcessedContent = processedContent.String
+		}
+		if processingPrompt.Valid {
+			article.ProcessingPrompt = processingPrompt.String
+		}
+		if processedAt.Valid {
+			article.ProcessedAt = &processedAt.Time
+		}
+
+		articles = append(articles, article)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over processed articles: %w", err)
+	}
+
+	return articles, nil
+}

@@ -1,0 +1,31 @@
+{{define "article-interview"}}
+<div class="interview-article">
+    {{with .FormattedContent}}
+    <h3 class="interview-headline">{{.headline}}</h3>
+    {{if .byline}}
+    <p class="interview-byline">{{.byline}}</p>
+    {{end}}
+    
+    {{if .intro}}
+    <div class="interview-intro">
+        <p>{{safeHTML .intro}}</p>
+    </div>
+    {{end}}
+    
+    {{if .questions}}
+    <div class="interview-qa">
+        {{range .questions}}
+        <div class="qa-pair">
+            <div class="question">
+                <strong>Q:</strong> {{safeHTML .q}}
+            </div>
+            <div class="answer">
+                <strong>A:</strong> {{safeHTML .a}}
+            </div>
+        </div>
+        {{end}}
+    </div>
+    {{end}}
+    {{end}}
+</div>
+{{end}}

@@ -10,6 +10,7 @@ import (
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/server"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/slack"
+	"github.com/olle-forsslof/kumpan-newspaper/internal/templates"
 )
 
 func main() {
@@ -47,8 +48,14 @@ func main() {
 		SigningSecret: cfg.SlackSigningSecret,
 	}, questionSelector, cfg.AdminUsers, submissionManager, aiProcessor, db)
 
-	// create server with dependencies - pass the slackBot
-	srv := server.NewWithBot(cfg, logger, slackBot) //  You'll need to create this method
+	// Create template service
+	templateService, err := templates.NewTemplateService(nil)
+	if err != nil {
+		log.Fatal("Failed to create template service: ", err)
+	}
+
+	// create server with dependencies - pass the slackBot, database, and template service
+	srv := server.NewWithBotAndTemplates(cfg, logger, slackBot, db, templateService)
 
 	// set up routes
 	srv.SetupRoutes()

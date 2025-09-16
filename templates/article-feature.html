@@ -1,0 +1,22 @@
+{{define "article-feature"}}
+<div class="feature-article">
+    {{with .FormattedContent}}
+    <h2 class="feature-headline">{{.headline}}</h2>
+    {{if .byline}}
+    <p class="feature-byline">{{.byline}}</p>
+    {{end}}
+    
+    {{if .lead}}
+    <div class="feature-lead">
+        <p>{{safeHTML .lead}}</p>
+    </div>
+    {{end}}
+    
+    {{if .body}}
+    <div class="feature-body">
+        {{safeHTML .body}}
+    </div>
+    {{end}}
+    {{end}}
+</div>
+{{end}}

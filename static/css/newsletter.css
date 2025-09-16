@@ -1,0 +1,517 @@
+/* Newsletter CSS - Old-timey Newspaper Style with Responsive Design */
+
+/* CSS Reset and Base Styles */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Source Sans Pro', Arial, sans-serif;
+    line-height: 1.6;
+    color: #2c2c2c;
+    background-color: #faf9f6;
+    font-size: 16px;
+}
+
+/* Typography Hierarchy */
+h1, h2, h3, h4 {
+    font-family: 'Playfair Display', serif;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-bottom: 0.5em;
+}
+
+h1 { font-size: 2.5rem; }
+h2 { font-size: 2rem; }
+h3 { font-size: 1.5rem; }
+h4 { font-size: 1.25rem; }
+
+p {
+    margin-bottom: 1em;
+}
+
+/* Newsletter Container */
+.newsletter-container {
+    max-width: 1200px;
+    margin: 0 auto;
+    background: white;
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    padding: 2rem;
+}
+
+/* Header Styles */
+.newsletter-header {
+    text-align: center;
+    border-bottom: 3px double #2c2c2c;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+}
+
+.masthead {
+    margin-bottom: 1rem;
+}
+
+.newsletter-title {
+    font-family: 'Playfair Display', serif;
+    font-weight: 900;
+    font-size: 3rem;
+    color: #1a1a1a;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 0.5rem;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+}
+
+.publication-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.9rem;
+    color: #666;
+    max-width: 400px;
+    margin: 0 auto;
+    padding: 0 1rem;
+}
+
+.header-divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, #2c2c2c, transparent);
+    margin: 1rem 0;
+}
+
+/* Main Content Grid */
+.newsletter-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 2rem;
+    margin-bottom: 2rem;
+}
+
+/* Article Styles */
+.newsletter-article {
+    break-inside: avoid;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 1.5rem;
+}
+
+.article-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.article-category {
+    font-family: 'Source Sans Pro', sans-serif;
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #666;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    background: #f8f8f8;
+    padding: 0.25rem 0.5rem;
+    border-radius: 3px;
+}
+
+.article-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.8rem;
+    color: #888;
+}
+
+/* Feature Article Styles */
+.feature-article {
+    grid-column: 1 / -1;
+    border: 2px solid #2c2c2c;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, #fafafa 0%, #ffffff 100%);
+    margin-bottom: 2rem;
+}
+
+.feature-headline {
+    font-size: 2.5rem;
+    color: #1a1a1a;
+    text-align: center;
+    margin-bottom: 1rem;
+    font-weight: 900;
+}
+
+.feature-byline {
+    text-align: center;
+    font-style: italic;
+    color: #666;
+    margin-bottom: 1.5rem;
+    font-size: 1.1rem;
+}
+
+.feature-lead {
+    font-size: 1.2rem;
+    font-weight: 400;
+    line-height: 1.7;
+    margin-bottom: 1.5rem;
+    text-align: justify;
+    color: #333;
+}
+
+.feature-body {
+    columns: 2;
+    column-gap: 2rem;
+    text-align: justify;
+}
+
+/* Interview Article Styles */
+.interview-article {
+    border-left: 4px solid #4a90e2;
+    padding-left: 1rem;
+}
+
+.interview-headline {
+    color: #2c5aa0;
+    margin-bottom: 0.5rem;
+}
+
+.interview-byline {
+    font-style: italic;
+    color: #666;
+    margin-bottom: 1rem;
+}
+
+.interview-intro {
+    background: #f8fbff;
+    padding: 1rem;
+    border-radius: 5px;
+    margin-bottom: 1.5rem;
+    border-left: 3px solid #4a90e2;
+}
+
+.interview-qa {
+    margin-top: 1rem;
+}
+
+.qa-pair {
+    margin-bottom: 1.5rem;
+    border-bottom: 1px dotted #ddd;
+    padding-bottom: 1rem;
+}
+
+.question {
+    font-weight: 600;
+    color: #2c5aa0;
+    margin-bottom: 0.5rem;
+}
+
+.answer {
+    color: #444;
+    line-height: 1.7;
+}
+
+/* General Article Styles */
+.general-article {
+    border-left: 3px solid #28a745;
+    padding-left: 1rem;
+}
+
+.general-headline {
+    color: #1e7e34;
+}
+
+.general-byline {
+    font-style: italic;
+    color: #666;
+    margin-bottom: 1rem;
+}
+
+.general-content {
+    text-align: justify;
+}
+
+/* Sports Article Styles */
+.sports-article {
+    border-left: 3px solid #ff6b35;
+    padding-left: 1rem;
+}
+
+.sports-headline {
+    color: #cc4125;
+    font-weight: 700;
+}
+
+.sports-byline {
+    font-style: italic;
+    color: #666;
+    margin-bottom: 1rem;
+}
+
+.sports-content {
+    text-align: justify;
+}
+
+/* Body/Mind Article Styles */
+.bodymind-article {
+    border-left: 3px solid #9b59b6;
+    padding-left: 1rem;
+    background: linear-gradient(to right, #faf9ff, transparent);
+    padding: 1.5rem;
+    border-radius: 8px;
+}
+
+.bodymind-headline {
+    color: #7d3c98;
+}
+
+.bodymind-byline {
+    font-style: italic;
+    color: #666;
+    margin-bottom: 1rem;
+}
+
+.bodymind-question {
+    display: flex;
+    align-items: flex-start;
+    background: #f4f1ff;
+    padding: 1rem;
+    border-radius: 8px;
+    margin: 1rem 0;
+    border-left: 4px solid #9b59b6;
+}
+
+.question-icon {
+    font-size: 1.5rem;
+    margin-right: 1rem;
+    flex-shrink: 0;
+}
+
+.bodymind-question blockquote {
+    font-style: italic;
+    font-size: 1.1rem;
+    color: #5a4d73;
+    margin: 0;
+}
+
+.bodymind-tips h4 {
+    color: #7d3c98;
+    margin-bottom: 0.5rem;
+}
+
+.tips-list {
+    list-style-type: none;
+    padding: 0;
+}
+
+.tips-list li {
+    padding: 0.5rem 0;
+    border-bottom: 1px dotted #ddd;
+    position: relative;
+    padding-left: 2rem;
+}
+
+.tips-list li::before {
+    content: "💡";
+    position: absolute;
+    left: 0;
+    top: 0.5rem;
+}
+
+.bodymind-takeaway {
+    display: flex;
+    align-items: center;
+    background: #e8f5e8;
+    padding: 1rem;
+    border-radius: 8px;
+    margin-top: 1.5rem;
+    border-left: 4px solid #28a745;
+}
+
+.takeaway-icon {
+    font-size: 1.5rem;
+    margin-right: 1rem;
+    flex-shrink: 0;
+}
+
+.takeaway-text {
+    margin: 0;
+    color: #2d5a2d;
+}
+
+/* Column Break */
+.column-break {
+    grid-column: 1 / -1;
+    height: 2px;
+    background: linear-gradient(to right, transparent, #ddd, transparent);
+    margin: 2rem 0;
+}
+
+/* No Content State */
+.no-content {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 3rem 1rem;
+    color: #666;
+}
+
+.no-content h2 {
+    color: #999;
+    margin-bottom: 1rem;
+}
+
+/* Footer Styles */
+.newsletter-footer {
+    margin-top: 2rem;
+    padding-top: 1rem;
+    border-top: 2px solid #e0e0e0;
+}
+
+.footer-divider {
+    height: 1px;
+    background: linear-gradient(to right, transparent, #ddd, transparent);
+    margin-bottom: 1rem;
+}
+
+.footer-content {
+    text-align: center;
+    font-size: 0.8rem;
+    color: #888;
+}
+
+.generated-info {
+    margin-bottom: 0.5rem;
+}
+
+.draft-notice {
+    color: #dc3545;
+    font-weight: 600;
+    background: #fff5f5;
+    padding: 0.5rem;
+    border-radius: 5px;
+    border: 1px solid #f8d7da;
+}
+
+/* Responsive Design */
+
+/* Tablet styles */
+@media (max-width: 768px) {
+    .newsletter-container {
+        padding: 1rem;
+    }
+    
+    .newsletter-title {
+        font-size: 2rem;
+    }
+    
+    .newsletter-content {
+        grid-template-columns: 1fr;
+        gap: 1.5rem;
+    }
+    
+    .feature-headline {
+        font-size: 2rem;
+    }
+    
+    .feature-body {
+        columns: 1;
+    }
+    
+    .publication-info {
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    
+    .article-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+    }
+    
+    .article-meta {
+        gap: 0.5rem;
+    }
+}
+
+/* Mobile styles */
+@media (max-width: 480px) {
+    .newsletter-container {
+        padding: 0.5rem;
+    }
+    
+    .newsletter-title {
+        font-size: 1.5rem;
+        letter-spacing: 1px;
+    }
+    
+    .feature-headline {
+        font-size: 1.5rem;
+    }
+    
+    .feature-lead {
+        font-size: 1rem;
+    }
+    
+    .bodymind-question {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+    
+    .bodymind-takeaway {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .question-icon,
+    .takeaway-icon {
+        margin: 0 0 1rem 0;
+    }
+}
+
+/* Print styles */
+@media print {
+    .newsletter-container {
+        box-shadow: none;
+        max-width: none;
+    }
+    
+    .newsletter-content {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    
+    .feature-body {
+        columns: 2;
+    }
+    
+    .draft-notice {
+        display: none;
+    }
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+    .newsletter-container {
+        border: 2px solid black;
+    }
+    
+    .article-category {
+        background: black;
+        color: white;
+    }
+    
+    .header-divider,
+    .footer-divider,
+    .column-break {
+        background: black;
+    }
+}

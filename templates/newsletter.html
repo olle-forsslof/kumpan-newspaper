@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.Issue.Title}} - {{formatWeek .Issue.WeekNumber .Issue.Year}}</title>
+    <link rel="stylesheet" href="/static/css/newsletter.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Source+Sans+Pro:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="newsletter-container">
+        <!-- Header -->
+        <header class="newsletter-header">
+            <div class="masthead">
+                <h1 class="newsletter-title">Company Newsletter</h1>
+                <div class="publication-info">
+                    <span class="issue-date">{{formatDate .Issue.PublicationDate}}</span>
+                    <span class="issue-number">{{formatWeek .Issue.WeekNumber .Issue.Year}}</span>
+                </div>
+            </div>
+            <div class="header-divider"></div>
+        </header>
+
+        <!-- Main Content Grid -->
+        <main class="newsletter-content">
+            {{if .Articles}}
+                {{range $index, $article := .Articles}}
+                    <article class="newsletter-article {{$article.JournalistType}}-article">
+                        <div class="article-header">
+                            <span class="article-category">{{$article.CategoryName}}</span>
+                            <div class="article-meta">
+                                <span class="word-count">{{$article.WordCount}} words</span>
+                                {{if $article.AuthorInfo}}
+                                <span class="author">By {{$article.AuthorInfo.Name}}</span>
+                                {{end}}
+                            </div>
+                        </div>
+                        
+                        <div class="article-content">
+                            {{if eq $article.JournalistType "feature"}}
+                                {{template "article-feature" $article}}
+                            {{else if eq $article.JournalistType "interview"}}
+                                {{template "article-interview" $article}}
+                            {{else if eq $article.JournalistType "sports"}}
+                                {{template "article-sports" $article}}
+                            {{else if eq $article.JournalistType "body_mind"}}
+                                {{template "article-bodymind" $article}}
+                            {{else}}
+                                {{template "article-general" $article}}
+                            {{end}}
+                        </div>
+                    </article>
+
+                    {{/* Add column break after feature articles */}}
+                    {{if and (eq $article.JournalistType "feature") (lt (add $index 1) (len $.Articles))}}
+                        <div class="column-break"></div>
+                    {{end}}
+                {{end}}
+            {{else}}
+                <div class="no-content">
+                    <h2>No articles available</h2>
+                    <p>This newsletter issue is still being prepared.</p>
+                </div>
+            {{end}}
+        </main>
+
+        <!-- Footer -->
+        <footer class="newsletter-footer">
+            <div class="footer-divider"></div>
+            <div class="footer-content">
+                <p class="generated-info">Generated on {{formatDate .GeneratedAt}} at {{formatTime .GeneratedAt}}</p>
+                {{if not .PublishReady}}
+                <p class="draft-notice">⚠️ Draft Version - Not for publication</p>
+                {{end}}
+            </div>
+        </footer>
+    </div>
+</body>
+</html>

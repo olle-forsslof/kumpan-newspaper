@@ -1,0 +1,16 @@
+{{define "article-general"}}
+<div class="general-article">
+    {{with .FormattedContent}}
+    <h3 class="general-headline">{{.headline}}</h3>
+    {{if .byline}}
+    <p class="general-byline">{{.byline}}</p>
+    {{end}}
+    
+    {{if .content}}
+    <div class="general-content">
+        {{safeHTML .content}}
+    </div>
+    {{end}}
+    {{end}}
+</div>
+{{end}}
