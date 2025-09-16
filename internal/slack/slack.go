@@ -352,9 +352,17 @@ func (b *slackBot) processSubmissionAsync(ctx context.Context, submission databa
 	}
 
 	// Process with AI and save to database atomically using new architecture
+	// Convert DatabaseInterface to *database.DB for the new method
+	dbPtr, ok := b.db.(*database.DB)
+	if !ok {
+		slog.Error("Database interface is not *database.DB type", "submission_id", submission.ID)
+		b.sendFollowupMessage(responseURL, "❌ Internal error: database type mismatch")
+		return
+	}
+
 	err = b.aiProcessor.ProcessAndSaveSubmission(
 		ctx,
-		b.db,              // Database connection
+		dbPtr,             // Database connection
 		submission,        // Submission to process
 		authorName,        // Author name
 		authorDepartment,  // Author department
