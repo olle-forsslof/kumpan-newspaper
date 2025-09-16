@@ -6,6 +6,7 @@ package slack
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/olle-forsslof/kumpan-newspaper/internal/ai"
@@ -240,41 +241,12 @@ func (b *slackBot) handleNewsSubmission(ctx context.Context, cmd SlashCommand) (
 		responseText = fmt.Sprintf("📰 *News submission received!*\n\n> %s\n\n", newsContent)
 	}
 
-	// Automatically process with AI if AIProcessor is available
+	// Launch async AI processing if AIProcessor is available
 	if b.aiProcessor != nil && submission != nil {
-		// Get user information for enriched processing
-		enrichedSubmission, err := b.EnrichSubmissionWithUserInfo(ctx, cmd.UserID, newsContent)
+		responseText += "🤖 Processing with AI in the background...\n"
 
-		// Use fallback user info if enrichment fails
-		authorName := "Team Member"
-		authorDepartment := "Unknown"
-
-		if err != nil {
-			// Log error but continue with fallback values
-			responseText += fmt.Sprintf("⚠️ Note: Using fallback user info (couldn't fetch from Slack): %v\n", err)
-		} else {
-			authorName = enrichedSubmission.AuthorName
-			authorDepartment = enrichedSubmission.AuthorDepartment
-		}
-
-		// Determine journalist type from question category
-		journalistType := b.determineJournalistTypeFromSubmission(ctx, submission)
-
-		// Process with AI
-		processedArticle, err := b.aiProcessor.ProcessSubmissionWithUserInfo(
-			ctx,
-			*submission,
-			authorName,
-			authorDepartment,
-			journalistType,
-		)
-
-		if err != nil {
-			// Log error but don't fail the submission - processing can be retried later
-			responseText += fmt.Sprintf("⚠️ Note: Auto-processing failed (AI): %v\n", err)
-		} else {
-			responseText += fmt.Sprintf("🤖 Auto-processed by %s journalist (%d words)\n", journalistType, processedArticle.WordCount)
-		}
+		// Launch goroutine for async processing
+		go b.processSubmissionAsync(context.Background(), *submission, cmd.UserID, cmd.ResponseURL)
 	}
 
 	responseText += "✅ Thanks for contributing!"
@@ -309,3 +281,88 @@ func (b *slackBot) determineJournalistTypeFromSubmission(ctx context.Context, su
 }
 
 // determineJournalistType is deprecated - use determineJournalistTypeFromSubmission instead
+
+// processSubmissionAsync handles AI processing in the background
+func (b *slackBot) processSubmissionAsync(ctx context.Context, submission database.Submission, userID string, responseURL string) {
+	// Log start of processing
+	slog.Info("Starting async AI processing",
+		"submission_id", submission.ID,
+		"user_id", userID)
+
+	// Get user information for enriched processing
+	enrichedSubmission, err := b.EnrichSubmissionWithUserInfo(ctx, userID, submission.Content)
+
+	// Use fallback user info if enrichment fails
+	authorName := "Team Member"
+	authorDepartment := "Unknown"
+
+	if err != nil {
+		slog.Warn("Using fallback user info for async processing",
+			"error", err,
+			"submission_id", submission.ID)
+	} else {
+		authorName = enrichedSubmission.AuthorName
+		authorDepartment = enrichedSubmission.AuthorDepartment
+	}
+
+	// Determine journalist type from question category
+	journalistType := b.determineJournalistTypeFromSubmission(ctx, &submission)
+
+	// Process with AI
+	processedArticle, err := b.aiProcessor.ProcessSubmissionWithUserInfo(
+		ctx,
+		submission,
+		authorName,
+		authorDepartment,
+		journalistType,
+	)
+
+	if err != nil {
+		// Log error - processing failed
+		slog.Error("Async AI processing failed",
+			"error", err,
+			"submission_id", submission.ID,
+			"journalist_type", journalistType)
+
+		// Send failure notification to user via response_url
+		b.sendFollowupMessage(responseURL, fmt.Sprintf("❌ AI processing failed: %v", err))
+		return
+	}
+
+	// Log success
+	slog.Info("Async AI processing completed successfully",
+		"submission_id", submission.ID,
+		"processed_article_id", processedArticle.ID,
+		"word_count", processedArticle.WordCount,
+		"journalist_type", journalistType)
+
+	// Send success notification to user via response_url
+	headline, err := processedArticle.GetHeadline()
+	if err != nil {
+		headline = "Article processed successfully"
+	}
+
+	message := fmt.Sprintf("🤖 ✅ Your submission has been processed by our %s journalist!\n\n📝 **%s**\n📊 %d words\n\n_Processing completed in the background_",
+		journalistType,
+		headline,
+		processedArticle.WordCount)
+
+	b.sendFollowupMessage(responseURL, message)
+}
+
+// sendFollowupMessage sends a follow-up message to Slack using the response_url
+func (b *slackBot) sendFollowupMessage(responseURL string, message string) {
+	if responseURL == "" {
+		slog.Warn("No response URL provided for follow-up message")
+		return
+	}
+
+	// Log that we're sending a follow-up (in production this would make actual HTTP request)
+	slog.Info("Sending follow-up message to Slack",
+		"response_url_provided", true,
+		"message_length", len(message))
+
+	// TODO: Implement actual HTTP POST to responseURL with message payload
+	// For now, just log the message that would be sent
+	slog.Info("Follow-up message content", "message", message)
+}
