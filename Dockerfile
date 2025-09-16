@@ -32,6 +32,12 @@ COPY --from=builder /app/main .
 # Copy migrations
 COPY --from=builder /app/migrations ./migrations/
 
+# Copy templates directory
+COPY --from=builder /app/templates ./templates/
+
+# Copy static assets directory  
+COPY --from=builder /app/static ./static/
+
 # Expose port
 EXPOSE 8080
 
