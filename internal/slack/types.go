@@ -73,3 +73,8 @@ type AIProcessor interface {
 	GetAvailableJournalists() []string
 	ValidateJournalistType(journalistType string) bool
 }
+
+// DatabaseInterface defines interface for database operations needed by SlackBot
+type DatabaseInterface interface {
+	GetOrCreateWeeklyIssue(weekNumber, year int) (*database.WeeklyNewsletterIssue, error)
+}

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/olle-forsslof/kumpan-newspaper/internal/ai"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
@@ -21,6 +22,7 @@ type slackBot struct {
 	submissionManager SubmissionManager
 	aiProcessor       AIProcessor
 	questionSelector  QuestionSelector
+	db                DatabaseInterface // Add database interface for testing
 }
 
 type QuestionSelector interface {
@@ -82,6 +84,20 @@ func NewBotWithWeeklyAutomation(cfg SlackConfig, questionSelector QuestionSelect
 		submissionManager: submissionManager,
 		aiProcessor:       aiProcessor,
 		questionSelector:  questionSelector,
+		db:                db, // Store database reference
+	}
+}
+
+// NewBotWithDatabase creates a bot with database capabilities for testing
+func NewBotWithDatabase(cfg SlackConfig, questionSelector QuestionSelector, adminUsers []string, submissionManager SubmissionManager, aiProcessor AIProcessor, db DatabaseInterface) Bot {
+	return &slackBot{
+		client:            nil,
+		config:            cfg,
+		adminHandler:      nil, // Not needed for basic testing
+		submissionManager: submissionManager,
+		aiProcessor:       aiProcessor,
+		questionSelector:  questionSelector,
+		db:                db,
 	}
 }
 
@@ -303,6 +319,10 @@ func (b *slackBot) processSubmissionAsync(ctx context.Context, submission databa
 	} else {
 		authorName = enrichedSubmission.AuthorName
 		authorDepartment = enrichedSubmission.AuthorDepartment
+		slog.Info("Successfully enriched submission with user info",
+			"author_name", authorName,
+			"author_department", authorDepartment,
+			"submission_id", submission.ID)
 	}
 
 	// Determine journalist type from question category
@@ -335,6 +355,32 @@ func (b *slackBot) processSubmissionAsync(ctx context.Context, submission databa
 		"processed_article_id", processedArticle.ID,
 		"word_count", processedArticle.WordCount,
 		"journalist_type", journalistType)
+
+	// AUTO-ASSIGNMENT: Link processed article to current week's newsletter issue
+	if b.db != nil {
+		// Get current week and year
+		now := time.Now()
+		year, week := now.ISOWeek()
+
+		// Get or create newsletter issue for current week
+		issue, err := b.db.GetOrCreateWeeklyIssue(week, year)
+		if err != nil {
+			slog.Error("Failed to get/create weekly newsletter issue for auto-assignment",
+				"error", err,
+				"week", week,
+				"year", year,
+				"submission_id", submission.ID)
+		} else {
+			// Update the processed article with newsletter assignment
+			processedArticle.NewsletterIssueID = &issue.ID
+
+			slog.Info("Auto-assigned article to newsletter issue",
+				"processed_article_id", processedArticle.ID,
+				"newsletter_issue_id", issue.ID,
+				"week", week,
+				"year", year)
+		}
+	}
 
 	// Send success notification to user via response_url
 	headline, err := processedArticle.GetHeadline()

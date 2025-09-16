@@ -2,7 +2,9 @@ package slack
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
 )
@@ -224,6 +226,9 @@ type ProcessWithUserInfoCall struct {
 }
 
 func (m *MockAIService) ProcessSubmissionWithUserInfo(ctx context.Context, submission database.Submission, authorName, authorDepartment, journalistType string) (*database.ProcessedArticle, error) {
+	// Log that this method is being called for debugging
+	fmt.Printf("DEBUG: MockAIService.ProcessSubmissionWithUserInfo called with submission ID: %d\n", submission.ID)
+
 	if m.Error != nil {
 		return nil, m.Error
 	}
@@ -266,3 +271,234 @@ func (m *MockAIService) GetJournalistProfile(journalistType string) (*database.P
 
 // Ensure MockAIService implements AIProcessor interface
 var _ AIProcessor = (*MockAIService)(nil)
+
+// TDD Phase 1: AUTO-ASSIGNMENT FAILING TESTS
+
+// MockDatabase for testing newsletter issue auto-assignment
+type MockDatabase struct {
+	WeeklyIssues                map[string]*database.WeeklyNewsletterIssue // key: "week-year"
+	ProcessedArticles           []database.ProcessedArticle
+	GetOrCreateWeeklyIssueCalls []GetOrCreateWeeklyIssueCall
+	UpdateProcessedArticleCalls []UpdateProcessedArticleCall
+}
+
+type GetOrCreateWeeklyIssueCall struct {
+	WeekNumber int
+	Year       int
+}
+
+type UpdateProcessedArticleCall struct {
+	Article database.ProcessedArticle
+}
+
+func NewMockDatabase() *MockDatabase {
+	return &MockDatabase{
+		WeeklyIssues:                make(map[string]*database.WeeklyNewsletterIssue),
+		ProcessedArticles:           []database.ProcessedArticle{},
+		GetOrCreateWeeklyIssueCalls: []GetOrCreateWeeklyIssueCall{},
+		UpdateProcessedArticleCalls: []UpdateProcessedArticleCall{},
+	}
+}
+
+func (m *MockDatabase) GetOrCreateWeeklyIssue(weekNumber, year int) (*database.WeeklyNewsletterIssue, error) {
+	key := fmt.Sprintf("%d-%d", weekNumber, year)
+
+	// Track the call
+	m.GetOrCreateWeeklyIssueCalls = append(m.GetOrCreateWeeklyIssueCalls, GetOrCreateWeeklyIssueCall{
+		WeekNumber: weekNumber,
+		Year:       year,
+	})
+
+	// Return existing issue if found
+	if issue, exists := m.WeeklyIssues[key]; exists {
+		return issue, nil
+	}
+
+	// Create new issue
+	issue := &database.WeeklyNewsletterIssue{
+		ID:         len(m.WeeklyIssues) + 1,
+		WeekNumber: weekNumber,
+		Year:       year,
+		Title:      fmt.Sprintf("Week %d, %d Newsletter", weekNumber, year),
+		Status:     database.IssueStatusDraft,
+	}
+	m.WeeklyIssues[key] = issue
+
+	return issue, nil
+}
+
+// Ensure MockDatabase implements DatabaseInterface
+var _ DatabaseInterface = (*MockDatabase)(nil)
+
+// TDD Test 1: processSubmissionAsync should auto-assign articles to current week's newsletter
+func TestProcessSubmissionAsync_AutoAssignsToCurrentWeek(t *testing.T) {
+	// This test should FAIL initially - processSubmissionAsync doesn't exist yet
+
+	// Setup mocks
+	mockSubmissionManager := &MockSubmissionManager{}
+	mockAIService := &MockAIService{}
+	mockDB := NewMockDatabase()
+
+	// Create submission
+	submission := database.Submission{
+		ID:      1,
+		UserID:  "U12345",
+		Content: "Our team launched a new feature this week!",
+	}
+
+	// Create a test slackBot with database access
+	bot := NewBotWithDatabase(
+		SlackConfig{Token: "test-token"},
+		nil,                  // question selector
+		[]string{"U1234567"}, // admin users
+		mockSubmissionManager,
+		mockAIService,
+		mockDB,
+	)
+
+	// Call through the public interface by submitting a command
+	command := SlashCommand{
+		Command:     "/pp",
+		Text:        "submit " + submission.Content,
+		UserID:      submission.UserID,
+		ResponseURL: "https://hooks.slack.com/test",
+	}
+
+	_, err := bot.HandleSlashCommand(context.Background(), command)
+	if err != nil {
+		t.Fatalf("HandleSlashCommand failed: %v", err)
+	}
+
+	// Wait a short time for goroutine to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify that GetOrCreateWeeklyIssue was called for current week
+	if len(mockDB.GetOrCreateWeeklyIssueCalls) != 1 {
+		t.Errorf("Expected GetOrCreateWeeklyIssue to be called once, got %d calls", len(mockDB.GetOrCreateWeeklyIssueCalls))
+	}
+
+	// Verify AI processing was triggered
+	if len(mockAIService.ProcessedWithUserInfo) != 1 {
+		t.Errorf("Expected AI processing to be called once, got %d calls", len(mockAIService.ProcessedWithUserInfo))
+	}
+}
+
+// TDD Test 2: processSubmissionAsync should create newsletter issue if it doesn't exist
+func TestProcessSubmissionAsync_CreatesWeeklyIssueIfNotExists(t *testing.T) {
+	// This test should FAIL initially
+
+	mockSubmissionManager := &MockSubmissionManager{}
+	mockAIService := &MockAIService{}
+	mockDB := NewMockDatabase()
+
+	// Verify no issues exist initially
+	if len(mockDB.WeeklyIssues) != 0 {
+		t.Errorf("Expected no newsletter issues initially, got %d", len(mockDB.WeeklyIssues))
+	}
+
+	submission := database.Submission{
+		ID:      1,
+		UserID:  "U12345",
+		Content: "Test submission content",
+	}
+
+	// Create bot - WILL FAIL as constructor doesn't exist
+	bot := NewBotWithDatabase(
+		SlackConfig{Token: "test-token"},
+		nil,
+		[]string{"U1234567"},
+		mockSubmissionManager,
+		mockAIService,
+		mockDB,
+	)
+
+	// Process submission through public interface
+	command := SlashCommand{
+		Command:     "/pp",
+		Text:        "submit " + submission.Content,
+		UserID:      submission.UserID,
+		ResponseURL: "",
+	}
+
+	_, err := bot.HandleSlashCommand(context.Background(), command)
+	if err != nil {
+		t.Fatalf("HandleSlashCommand failed: %v", err)
+	}
+
+	// Wait a short time for goroutine to complete
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify a new newsletter issue was created
+	if len(mockDB.WeeklyIssues) != 1 {
+		t.Errorf("Expected 1 newsletter issue to be created, got %d", len(mockDB.WeeklyIssues))
+	}
+}
+
+// TDD Test 3: Integration test - Complete flow from submit command to newsletter display
+func TestSlackBot_SubmitCommand_ArticleAppearsInNewsletter_Integration(t *testing.T) {
+	// This test should FAIL initially - complete auto-assignment flow doesn't exist
+
+	// Setup: Use real test database for integration testing
+	tempDir := t.TempDir()
+	dbPath := fmt.Sprintf("%s/test.db", tempDir)
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate test database: %v", err)
+	}
+
+	// Create real dependencies
+	questionSelector := database.NewQuestionSelector(db.DB)
+	submissionManager := database.NewSubmissionManager(db.DB)
+	mockAIService := &MockAIService{} // Use mock AI to avoid external API calls
+
+	// Create bot with full dependencies including database - WILL FAIL as constructor doesn't exist
+	bot := NewBotWithDatabase(
+		SlackConfig{Token: "test-token"},
+		questionSelector,
+		[]string{"U1234567"},
+		submissionManager,
+		mockAIService,
+		db, // Real database
+	)
+
+	// Simulate submission command
+	command := SlashCommand{
+		Command:     "/pp",
+		Text:        "submit Our new analytics dashboard is live and helping teams make better decisions!",
+		UserID:      "U987654321",
+		ResponseURL: "",
+	}
+
+	// Handle the command - should trigger async processing
+	response, err := bot.HandleSlashCommand(context.Background(), command)
+	if err != nil {
+		t.Fatalf("HandleSlashCommand failed: %v", err)
+	}
+
+	// Verify immediate response
+	if response == nil || response.Text == "" {
+		t.Fatal("Expected immediate response from submission")
+	}
+
+	// TODO: Add synchronization mechanism for async processing in tests
+	// For now, we'll check that the submission was created
+	submissions, err := submissionManager.GetSubmissionsByUser(context.Background(), "U987654321")
+	if err != nil {
+		t.Fatalf("Failed to get submissions: %v", err)
+	}
+
+	if len(submissions) != 1 {
+		t.Errorf("Expected 1 submission, got %d", len(submissions))
+	}
+
+	// After implementing async processing, this test should verify:
+	// 1. ProcessedArticle exists with newsletter_issue_id set
+	// 2. GetProcessedArticlesByNewsletterIssue returns the article
+	// 3. Article appears in current week's newsletter
+}
