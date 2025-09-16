@@ -30,6 +30,9 @@ type EnhancedAIService interface {
 
 	// ProcessSubmissionWithUserInfo transforms a submission with user context into structured JSON article
 	ProcessSubmissionWithUserInfo(ctx context.Context, submission database.Submission, authorName, authorDepartment, journalistType string) (*database.ProcessedArticle, error)
+
+	// ProcessAndSaveSubmission transforms a submission with user context and saves the processed article to database atomically
+	ProcessAndSaveSubmission(ctx context.Context, db *database.DB, submission database.Submission, authorName, authorDepartment, journalistType string, newsletterIssueID *int) error
 }
 
 // ProcessingResult contains the AI processing result details

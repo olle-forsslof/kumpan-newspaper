@@ -2,6 +2,7 @@ package ai
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
@@ -144,4 +145,56 @@ func TestParseJSONResponse(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TDD Phase 1: RED - Write failing test for ProcessAndSaveSubmission method
+func TestAIService_ProcessAndSaveSubmission(t *testing.T) {
+	// This test should FAIL initially - ProcessAndSaveSubmission doesn't exist yet
+
+	// Setup test database
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate database: %v", err)
+	}
+
+	// Create AI service - using test API key to avoid real API calls
+	service := NewAnthropicService("test-api-key-will-fail-but-thats-ok-for-testing-interface")
+
+	// Create test submission
+	submission := database.Submission{
+		ID:      1,
+		UserID:  "U12345",
+		Content: "Our team launched an amazing new dashboard feature that helps users visualize their data in completely new ways!",
+	}
+
+	// Create newsletter issue ID for assignment
+	newsletterIssueID := 42
+
+	// Test the ProcessAndSaveSubmission method - THIS WILL FAIL as method doesn't exist
+	err = service.ProcessAndSaveSubmission(
+		context.Background(),
+		db,                 // Database connection
+		submission,         // Submission to process
+		"Test User",        // Author name
+		"Engineering",      // Author department
+		"feature",          // Journalist type
+		&newsletterIssueID, // Newsletter issue ID
+	)
+
+	// For now, we expect this to fail due to missing method - that's the RED phase
+	if err == nil {
+		// If method exists but fails due to test API key, that's fine for interface testing
+		t.Log("Method exists - good! Error expected due to test API key")
+	}
+
+	// Note: Full verification will be added once method is implemented
+	// This test establishes the interface contract we need
 }

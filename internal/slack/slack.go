@@ -328,18 +328,43 @@ func (b *slackBot) processSubmissionAsync(ctx context.Context, submission databa
 	// Determine journalist type from question category
 	journalistType := b.determineJournalistTypeFromSubmission(ctx, &submission)
 
-	// Process with AI
-	processedArticle, err := b.aiProcessor.ProcessSubmissionWithUserInfo(
+	// Get current newsletter issue for auto-assignment
+	var newsletterIssueID *int
+	if b.db != nil {
+		now := time.Now()
+		year, week := now.ISOWeek()
+
+		issue, err := b.db.GetOrCreateWeeklyIssue(week, year)
+		if err != nil {
+			slog.Error("Failed to get/create weekly newsletter issue for auto-assignment",
+				"error", err,
+				"week", week,
+				"year", year,
+				"submission_id", submission.ID)
+			// Continue without newsletter assignment
+		} else {
+			newsletterIssueID = &issue.ID
+			slog.Info("Retrieved newsletter issue for auto-assignment",
+				"newsletter_issue_id", issue.ID,
+				"week", week,
+				"year", year)
+		}
+	}
+
+	// Process with AI and save to database atomically using new architecture
+	err = b.aiProcessor.ProcessAndSaveSubmission(
 		ctx,
-		submission,
-		authorName,
-		authorDepartment,
-		journalistType,
+		b.db,              // Database connection
+		submission,        // Submission to process
+		authorName,        // Author name
+		authorDepartment,  // Author department
+		journalistType,    // Journalist type
+		newsletterIssueID, // Newsletter issue ID for auto-assignment
 	)
 
 	if err != nil {
 		// Log error - processing failed
-		slog.Error("Async AI processing failed",
+		slog.Error("ProcessAndSaveSubmission failed",
 			"error", err,
 			"submission_id", submission.ID,
 			"journalist_type", journalistType)
@@ -349,49 +374,15 @@ func (b *slackBot) processSubmissionAsync(ctx context.Context, submission databa
 		return
 	}
 
-	// Log success
-	slog.Info("Async AI processing completed successfully",
+	// Success! Article has been processed AND saved to database with newsletter assignment
+	slog.Info("ProcessAndSaveSubmission completed successfully",
 		"submission_id", submission.ID,
-		"processed_article_id", processedArticle.ID,
-		"word_count", processedArticle.WordCount,
-		"journalist_type", journalistType)
+		"journalist_type", journalistType,
+		"newsletter_issue_id", newsletterIssueID)
 
-	// AUTO-ASSIGNMENT: Link processed article to current week's newsletter issue
-	if b.db != nil {
-		// Get current week and year
-		now := time.Now()
-		year, week := now.ISOWeek()
-
-		// Get or create newsletter issue for current week
-		issue, err := b.db.GetOrCreateWeeklyIssue(week, year)
-		if err != nil {
-			slog.Error("Failed to get/create weekly newsletter issue for auto-assignment",
-				"error", err,
-				"week", week,
-				"year", year,
-				"submission_id", submission.ID)
-		} else {
-			// Update the processed article with newsletter assignment
-			processedArticle.NewsletterIssueID = &issue.ID
-
-			slog.Info("Auto-assigned article to newsletter issue",
-				"processed_article_id", processedArticle.ID,
-				"newsletter_issue_id", issue.ID,
-				"week", week,
-				"year", year)
-		}
-	}
-
-	// Send success notification to user via response_url
-	headline, err := processedArticle.GetHeadline()
-	if err != nil {
-		headline = "Article processed successfully"
-	}
-
-	message := fmt.Sprintf("🤖 ✅ Your submission has been processed by our %s journalist!\n\n📝 **%s**\n📊 %d words\n\n_Processing completed in the background_",
-		journalistType,
-		headline,
-		processedArticle.WordCount)
+	// Send success notification to user
+	message := fmt.Sprintf("🤖 ✅ Your submission has been processed by our %s journalist and added to the newsletter!\n\n_Processing completed in the background_",
+		journalistType)
 
 	b.sendFollowupMessage(responseURL, message)
 }

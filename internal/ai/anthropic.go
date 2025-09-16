@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -162,6 +163,42 @@ func (a *AnthropicService) ProcessSubmissionWithUserInfo(ctx context.Context, su
 	}
 
 	return article, nil
+}
+
+// ProcessAndSaveSubmission processes a submission with AI and saves the result atomically to database
+func (a *AnthropicService) ProcessAndSaveSubmission(
+	ctx context.Context,
+	db *database.DB,
+	submission database.Submission,
+	authorName, authorDepartment, journalistType string,
+	newsletterIssueID *int,
+) error {
+	// First, process the submission using existing logic
+	processedArticle, err := a.ProcessSubmissionWithUserInfo(ctx, submission, authorName, authorDepartment, journalistType)
+	if err != nil {
+		return fmt.Errorf("AI processing failed: %w", err)
+	}
+
+	// Set the newsletter issue ID for auto-assignment
+	processedArticle.NewsletterIssueID = newsletterIssueID
+
+	// Save the processed article to database atomically
+	articleID, err := db.CreateProcessedArticle(*processedArticle)
+	if err != nil {
+		return fmt.Errorf("database save failed: %w", err)
+	}
+
+	// Update the in-memory object with the database ID
+	processedArticle.ID = articleID
+
+	slog.Info("ProcessAndSaveSubmission completed successfully",
+		"submission_id", submission.ID,
+		"processed_article_id", articleID,
+		"newsletter_issue_id", newsletterIssueID,
+		"journalist_type", journalistType,
+		"word_count", processedArticle.WordCount)
+
+	return nil
 }
 
 // callAnthropicAPI makes the actual API call with proper error handling

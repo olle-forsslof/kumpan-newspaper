@@ -366,29 +366,87 @@ Technical Architecture Delivered:
 System builds successfully and ready for Phase 1 completion
 ```
 
-### Prompt 10: Integration Testing & Phase 1 Completion - [ ] INCOMPLETE
+### Prompt 10: Auto-Assignment Architecture Refactor (TDD) - [🔄] IN PROGRESS
 
 ```
-Create end-to-end integration tests and finalize Phase 1.
+Fix missing articles in newsletter by implementing ProcessAndSaveSubmission architecture using TDD.
+
+CRITICAL ISSUE IDENTIFIED:
+- ✅ Submissions are saved to database (confirmed via admin commands)  
+- ✅ AI processing works (no timeout errors)
+- ❌ ProcessedArticles never saved to database (missing final step)
+- ❌ Newsletter queries return empty (frontend works, no data to display)
+
+ROOT CAUSE: Current architecture has AI service return ProcessedArticle objects that are never persisted to database.
+
+SOLUTION: Refactor to ProcessAndSaveSubmission architecture where AI service handles complete flow atomically.
+
+Current Broken Flow:
+```
+1. User submits → Save Submission ✅
+2. AI processes → Return ProcessedArticle object ✅  
+3. Set newsletter_issue_id on object ✅
+4. ❌ MISSING: Save ProcessedArticle to database
+5. Frontend queries ProcessedArticles → Empty results ❌
+```
+
+New Simplified Architecture:
+```  
+1. User submits → Save Submission ✅
+2. Get current newsletter issue ✅
+3. AI.ProcessAndSaveSubmission(submission, userInfo, newsletterIssueID) ✅
+   └─ Process with AI ✅
+   └─ Create ProcessedArticle with newsletter_issue_id ✅  
+   └─ Save to database atomically ✅
+4. Frontend queries ProcessedArticles → Articles appear! ✅
+```
+
+TDD Implementation Plan:
+1. 🔴 RED: Write failing test for ProcessAndSaveSubmission method
+2. 🔴 RED: Write failing test for auto-assignment integration  
+3. 🟢 GREEN: Add ProcessAndSaveSubmission to AI service interface
+4. 🟢 GREEN: Implement method in AnthropicService with database save
+5. 🟢 GREEN: Update async processing to use new method
+6. 🟢 GREEN: Update DatabaseInterface and mocks
+7. ✨ REFACTOR: Clean up old orchestration code
+8. ✅ VERIFY: Articles appear in production newsletter
+
+Technical Requirements:
+- Follow strict TDD methodology (Red-Green-Refactor)
+- Single atomic operation for AI processing + database save
+- Proper error handling and transaction safety
+- Update all interfaces and mocks for testing
+- Maintain backward compatibility during transition
+- Comprehensive test coverage for new architecture
+
+Expected outcome: Articles automatically appear in newsletter after AI processing,
+with clean architecture where AI service owns complete processing-to-persistence flow
+```
+
+### Prompt 11: Integration Testing & Phase 1 Completion - [ ] PENDING
+
+```
+Create end-to-end integration tests and finalize Phase 1 after auto-assignment fix.
 
 Implement integration testing:
-- End-to-end test from weekly issue creation to AI processing to template rendering
-- Template rendering tests with real ProcessedArticle data
+- End-to-end test from submission to newsletter display (including auto-assignment)
+- Template rendering tests with real ProcessedArticle data  
 - Weekly automation workflow testing (person rotation, question assignment)
-- HTTP endpoint integration tests
+- HTTP endpoint integration tests with article display verification
 - Database migration testing (including all newsletter automation schema)
-- AI processing error scenario testing
-- Performance baseline measurements for AI API calls
+- AI processing error scenario testing with ProcessAndSaveSubmission
+- Performance baseline measurements for complete processing pipeline
 
 Requirements:
 - Comprehensive test suite covering all Phase 1 functionality
 - Test cleanup and isolation with proper mocking for AI services
-- Documentation updates with current weekly automation system
-- Code review and refactoring for maintainability
+- Documentation updates reflecting ProcessAndSaveSubmission architecture
+- Code review and refactoring for maintainability  
+- Verification that articles appear correctly in production newsletter
 - Prepare codebase for Phase 2 development (advanced newsletter features)
 
-Expected outcome: Fully tested and documented Phase 1 implementation with complete 
-weekly automation system, AI journalist pipeline, and HTML template rendering - 
+Expected outcome: Fully tested and documented Phase 1 implementation with working
+newsletter article display, complete automation system, and clean architecture
 ready for advanced newsletter features development
 ```
 

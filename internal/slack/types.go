@@ -70,6 +70,7 @@ type EnrichedSubmission struct {
 // AIProcessor defines interface for AI content processing
 type AIProcessor interface {
 	ProcessSubmissionWithUserInfo(ctx context.Context, submission database.Submission, authorName, authorDepartment, journalistType string) (*database.ProcessedArticle, error)
+	ProcessAndSaveSubmission(ctx context.Context, db *database.DB, submission database.Submission, authorName, authorDepartment, journalistType string, newsletterIssueID *int) error
 	GetAvailableJournalists() []string
 	ValidateJournalistType(journalistType string) bool
 }
@@ -77,4 +78,5 @@ type AIProcessor interface {
 // DatabaseInterface defines interface for database operations needed by SlackBot
 type DatabaseInterface interface {
 	GetOrCreateWeeklyIssue(weekNumber, year int) (*database.WeeklyNewsletterIssue, error)
+	CreateProcessedArticle(article database.ProcessedArticle) (int, error)
 }

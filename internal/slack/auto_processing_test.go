@@ -502,3 +502,142 @@ func TestSlackBot_SubmitCommand_ArticleAppearsInNewsletter_Integration(t *testin
 	// 2. GetProcessedArticlesByNewsletterIssue returns the article
 	// 3. Article appears in current week's newsletter
 }
+
+// TDD Phase 1: RED - Integration test for complete ProcessAndSaveSubmission flow
+func TestSlackBot_ProcessAndSaveSubmission_Integration(t *testing.T) {
+	// This test should FAIL initially - ProcessAndSaveSubmission architecture doesn't exist
+
+	// Setup real test database
+	tempDir := t.TempDir()
+	dbPath := fmt.Sprintf("%s/test.db", tempDir)
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate test database: %v", err)
+	}
+
+	// Create newsletter issue for testing
+	issue, err := db.GetOrCreateWeeklyIssue(42, 2025)
+	if err != nil {
+		t.Fatalf("Failed to create newsletter issue: %v", err)
+	}
+
+	// Create mocks for testing
+	mockSubmissionManager := &MockSubmissionManager{}
+	mockAIService := &MockAIServiceWithSave{
+		MockAIService: &MockAIService{},
+		Database:      db,
+	}
+
+	// Create bot with database access
+	bot := NewBotWithDatabase(
+		SlackConfig{Token: "test-token"},
+		nil,                  // question selector
+		[]string{"U1234567"}, // admin users
+		mockSubmissionManager,
+		mockAIService,
+		db,
+	)
+
+	// Submit article via Slack command
+	command := SlashCommand{
+		Command:     "/pp",
+		Text:        "submit Our new analytics dashboard is transforming how teams make data-driven decisions!",
+		UserID:      "U987654321",
+		ResponseURL: "",
+	}
+
+	// Handle the submission command
+	response, err := bot.HandleSlashCommand(context.Background(), command)
+	if err != nil {
+		t.Fatalf("HandleSlashCommand failed: %v", err)
+	}
+
+	if response == nil {
+		t.Fatal("Expected response from command handler")
+	}
+
+	// Wait for async processing to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify that ProcessedArticle exists in database with newsletter_issue_id set
+	articles, err := db.GetProcessedArticlesByNewsletterIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("Failed to query processed articles: %v", err)
+	}
+
+	// This is the KEY TEST: Articles should now appear in newsletter query
+	if len(articles) != 1 {
+		t.Errorf("Expected 1 processed article in newsletter, got %d", len(articles))
+		t.Log("This test will pass once ProcessAndSaveSubmission is implemented")
+		return
+	}
+
+	// Verify article details
+	article := articles[0]
+	if article.NewsletterIssueID == nil {
+		t.Error("Expected newsletter_issue_id to be set")
+	} else if *article.NewsletterIssueID != issue.ID {
+		t.Errorf("Expected newsletter_issue_id %d, got %d", issue.ID, *article.NewsletterIssueID)
+	}
+
+	if article.ProcessingStatus != database.ProcessingStatusSuccess {
+		t.Errorf("Expected processing status 'success', got %s", article.ProcessingStatus)
+	}
+
+	t.Log("SUCCESS: Article automatically appears in newsletter after processing!")
+}
+
+// MockAIServiceWithSave extends MockAIService to support ProcessAndSaveSubmission
+type MockAIServiceWithSave struct {
+	*MockAIService
+	Database            *database.DB
+	ProcessAndSaveCalls []ProcessAndSaveCall
+}
+
+type ProcessAndSaveCall struct {
+	Submission        database.Submission
+	AuthorName        string
+	AuthorDepartment  string
+	JournalistType    string
+	NewsletterIssueID *int
+}
+
+// This method will FAIL to compile initially - that's the RED phase
+func (m *MockAIServiceWithSave) ProcessAndSaveSubmission(
+	ctx context.Context,
+	db *database.DB,
+	submission database.Submission,
+	authorName, authorDepartment, journalistType string,
+	newsletterIssueID *int,
+) error {
+	// Track the call
+	call := ProcessAndSaveCall{
+		Submission:        submission,
+		AuthorName:        authorName,
+		AuthorDepartment:  authorDepartment,
+		JournalistType:    journalistType,
+		NewsletterIssueID: newsletterIssueID,
+	}
+	m.ProcessAndSaveCalls = append(m.ProcessAndSaveCalls, call)
+
+	// Simulate the complete flow: AI processing + database save
+	processedArticle := database.ProcessedArticle{
+		SubmissionID:      submission.ID,
+		NewsletterIssueID: newsletterIssueID, // This is the key fix!
+		JournalistType:    journalistType,
+		ProcessedContent:  `{"headline": "Test Article", "body": "Test content", "byline": "Test Writer"}`,
+		ProcessingStatus:  database.ProcessingStatusSuccess,
+		WordCount:         25,
+		TemplateFormat:    "hero",
+	}
+
+	// Save to database (this is what the real implementation should do)
+	_, err := db.CreateProcessedArticle(processedArticle)
+	return err
+}
