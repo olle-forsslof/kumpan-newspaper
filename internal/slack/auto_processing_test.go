@@ -14,17 +14,32 @@ import (
 func TestSlackBot_AutoProcessSubmission(t *testing.T) {
 	// This test should FAIL initially as auto-processing doesn't exist
 
+	// Setup real test database for AI processing
+	tempDir := t.TempDir()
+	dbPath := fmt.Sprintf("%s/test.db", tempDir)
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate test database: %v", err)
+	}
+
 	// Create mock services
 	mockSubmissionManager := &MockSubmissionManager{}
 	mockAIService := &MockAIService{}
 
-	// Create enhanced bot with AI processing capability
-	bot := NewBotWithAIProcessing(
+	// Create enhanced bot with AI processing capability and database
+	bot := NewBotWithDatabase(
 		SlackConfig{Token: "test-token"},
 		nil,                  // question selector
 		[]string{"U1234567"}, // admin users
 		mockSubmissionManager,
 		mockAIService,
+		db, // Use real database for AI processing
 	)
 
 	// Simulate news submission command
@@ -39,14 +54,17 @@ func TestSlackBot_AutoProcessSubmission(t *testing.T) {
 		t.Fatalf("HandleSlashCommand failed: %v", err)
 	}
 
+	// Give async processing time to complete
+	time.Sleep(500 * time.Millisecond)
+
 	// Verify submission was stored
 	if len(mockSubmissionManager.CreatedSubmissions) != 1 {
 		t.Errorf("Expected 1 created submission, got %d", len(mockSubmissionManager.CreatedSubmissions))
 	}
 
 	// Verify AI processing was triggered automatically
-	if len(mockAIService.ProcessedWithUserInfo) != 1 {
-		t.Errorf("Expected 1 processed submission, got %d", len(mockAIService.ProcessedWithUserInfo))
+	if len(mockAIService.ProcessAndSaveCalls) != 1 {
+		t.Errorf("Expected 1 processed submission, got %d", len(mockAIService.ProcessAndSaveCalls))
 	}
 
 	// Verify response indicates both storage and processing
@@ -65,15 +83,30 @@ func TestSlackBot_AutoProcessSubmission(t *testing.T) {
 func TestSlackBot_AutoProcessWithUserInfo(t *testing.T) {
 	// This test should FAIL initially as user info enrichment doesn't exist in auto-processing
 
+	// Setup real test database for AI processing
+	tempDir := t.TempDir()
+	dbPath := fmt.Sprintf("%s/test.db", tempDir)
+
+	testDB, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer testDB.Close()
+
+	if err := testDB.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate test database: %v", err)
+	}
+
 	mockSubmissionManager := &MockSubmissionManager{}
 	mockAIService := &MockAIService{}
 
-	bot := NewBotWithAIProcessing(
+	bot := NewBotWithDatabase(
 		SlackConfig{Token: "test-token"},
 		nil,
 		[]string{"U1234567"},
 		mockSubmissionManager,
 		mockAIService,
+		testDB,
 	)
 
 	command := SlashCommand{
@@ -82,18 +115,21 @@ func TestSlackBot_AutoProcessWithUserInfo(t *testing.T) {
 		UserID:  "U987654321",
 	}
 
-	_, err := bot.HandleSlashCommand(context.Background(), command)
-	if err != nil {
-		t.Fatalf("HandleSlashCommand failed: %v", err)
+	_, cmdErr := bot.HandleSlashCommand(context.Background(), command)
+	if cmdErr != nil {
+		t.Fatalf("HandleSlashCommand failed: %v", cmdErr)
 	}
 
+	// Give async processing time to complete
+	time.Sleep(500 * time.Millisecond)
+
 	// Verify AI processing was called with user information
-	if len(mockAIService.ProcessedWithUserInfo) != 1 {
-		t.Errorf("Expected 1 user-enriched processing call, got %d", len(mockAIService.ProcessedWithUserInfo))
+	if len(mockAIService.ProcessAndSaveCalls) != 1 {
+		t.Errorf("Expected 1 user-enriched processing call, got %d", len(mockAIService.ProcessAndSaveCalls))
 	}
 
 	// Check that user info was passed correctly
-	processCall := mockAIService.ProcessedWithUserInfo[0]
+	processCall := mockAIService.ProcessAndSaveCalls[0]
 	if processCall.AuthorName == "" {
 		t.Error("Expected non-empty author name in processing call")
 	}
@@ -155,17 +191,17 @@ func TestSlackBot_AutoJournalistSelection(t *testing.T) {
 				UserID:  "U987654321",
 			}
 
-			_, err := bot.HandleSlashCommand(context.Background(), command)
-			if err != nil {
-				t.Fatalf("HandleSlashCommand failed: %v", err)
+			_, cmdErr := bot.HandleSlashCommand(context.Background(), command)
+			if cmdErr != nil {
+				t.Fatalf("HandleSlashCommand failed: %v", cmdErr)
 			}
 
 			// Verify correct journalist type was selected
-			if len(mockAIService.ProcessedWithUserInfo) != 1 {
-				t.Fatalf("Expected 1 processing call, got %d", len(mockAIService.ProcessedWithUserInfo))
+			if len(mockAIService.ProcessAndSaveCalls) != 1 {
+				t.Fatalf("Expected 1 processing call, got %d", len(mockAIService.ProcessAndSaveCalls))
 			}
 
-			processCall := mockAIService.ProcessedWithUserInfo[0]
+			processCall := mockAIService.ProcessAndSaveCalls[0]
 			if processCall.JournalistType != tc.expectedJournalist {
 				t.Errorf("Expected journalist type %s, got %s", tc.expectedJournalist, processCall.JournalistType)
 			}
@@ -216,6 +252,7 @@ func (m *MockSubmissionManager) GetAllSubmissions(ctx context.Context) ([]databa
 type MockAIService struct {
 	ProcessedSubmissions  []database.Submission
 	ProcessedWithUserInfo []ProcessWithUserInfoCall
+	ProcessAndSaveCalls   []ProcessAndSaveCall
 	Error                 error
 }
 
@@ -224,6 +261,14 @@ type ProcessWithUserInfoCall struct {
 	AuthorName       string
 	AuthorDepartment string
 	JournalistType   string
+}
+
+type ProcessAndSaveCall struct {
+	Submission        database.Submission
+	AuthorName        string
+	AuthorDepartment  string
+	JournalistType    string
+	NewsletterIssueID *int
 }
 
 func (m *MockAIService) ProcessSubmissionWithUserInfo(ctx context.Context, submission database.Submission, authorName, authorDepartment, journalistType string) (*database.ProcessedArticle, error) {
@@ -247,7 +292,7 @@ func (m *MockAIService) ProcessSubmissionWithUserInfo(ctx context.Context, submi
 		ID:               1,
 		SubmissionID:     submission.ID,
 		JournalistType:   journalistType,
-		ProcessedContent: `{"headline": "Test", "body": "Test content", "byline": "Test Writer"}`,
+		ProcessedContent: `{"headline": "Test", "content": "Test content", "byline": "Test Writer"}`,
 		ProcessingStatus: database.ProcessingStatusSuccess,
 		WordCount:        10,
 	}, nil
@@ -278,6 +323,20 @@ func (m *MockAIService) ProcessAndSaveSubmission(
 	authorName, authorDepartment, journalistType string,
 	newsletterIssueID *int,
 ) error {
+	if m.Error != nil {
+		return m.Error
+	}
+
+	// Track the call
+	call := ProcessAndSaveCall{
+		Submission:        submission,
+		AuthorName:        authorName,
+		AuthorDepartment:  authorDepartment,
+		JournalistType:    journalistType,
+		NewsletterIssueID: newsletterIssueID,
+	}
+	m.ProcessAndSaveCalls = append(m.ProcessAndSaveCalls, call)
+
 	// For basic mock, just return nil (success)
 	// Individual tests can override this behavior if needed
 	return nil
@@ -622,16 +681,7 @@ func TestSlackBot_ProcessAndSaveSubmission_Integration(t *testing.T) {
 // MockAIServiceWithSave extends MockAIService to support ProcessAndSaveSubmission
 type MockAIServiceWithSave struct {
 	*MockAIService
-	Database            *database.DB
-	ProcessAndSaveCalls []ProcessAndSaveCall
-}
-
-type ProcessAndSaveCall struct {
-	Submission        database.Submission
-	AuthorName        string
-	AuthorDepartment  string
-	JournalistType    string
-	NewsletterIssueID *int
+	Database *database.DB
 }
 
 // This method will FAIL to compile initially - that's the RED phase
@@ -650,14 +700,14 @@ func (m *MockAIServiceWithSave) ProcessAndSaveSubmission(
 		JournalistType:    journalistType,
 		NewsletterIssueID: newsletterIssueID,
 	}
-	m.ProcessAndSaveCalls = append(m.ProcessAndSaveCalls, call)
+	m.MockAIService.ProcessAndSaveCalls = append(m.MockAIService.ProcessAndSaveCalls, call)
 
 	// Simulate the complete flow: AI processing + database save
 	processedArticle := database.ProcessedArticle{
 		SubmissionID:      submission.ID,
 		NewsletterIssueID: newsletterIssueID, // This is the key fix!
 		JournalistType:    journalistType,
-		ProcessedContent:  `{"headline": "Test Article", "body": "Test content", "byline": "Test Writer"}`,
+		ProcessedContent:  `{"headline": "Test Article", "content": "Test content", "byline": "Test Writer"}`,
 		ProcessingStatus:  database.ProcessingStatusSuccess,
 		WordCount:         25,
 		TemplateFormat:    "hero",

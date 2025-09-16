@@ -117,7 +117,7 @@ func TestJournalistJSONStructures(t *testing.T) {
 		},
 		{
 			journalistType: "general",
-			expectedFields: []string{"headline", "body", "byline"},
+			expectedFields: []string{"headline", "content", "byline"},
 		},
 		{
 			journalistType: "body_mind",

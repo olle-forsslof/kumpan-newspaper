@@ -162,11 +162,11 @@ func GetRequiredJSONFields(journalistType string) []string {
 	case "interview":
 		return []string{"headline", "introduction", "questions", "byline"}
 	case "general":
-		return []string{"headline", "body", "byline"}
+		return []string{"headline", "content", "byline"}
 	case "body_mind":
 		return []string{"headline", "response", "signoff", "byline"}
 	default:
-		return []string{"headline", "body", "byline"} // Default structure
+		return []string{"headline", "content", "byline"} // Default structure
 	}
 }
 
@@ -217,7 +217,7 @@ func getJSONStructureForJournalist(journalistType string) string {
 	case "general":
 		return `{
   "headline": "Clear, informative headline",
-  "body": "Straightforward news content",
+  "content": "Straightforward news content",
   "byline": "Lars Petersson, Staff Reporter"
 }`
 	case "body_mind":
