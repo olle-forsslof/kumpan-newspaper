@@ -3,6 +3,8 @@ package slack
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/slack-go/slack"
@@ -12,6 +14,7 @@ import (
 type slackClientInterface interface {
 	PostMessageContext(ctx context.Context, channel string, options ...slack.MsgOption) (string, string, error)
 	OpenConversationContext(ctx context.Context, params *slack.OpenConversationParameters) (*slack.Channel, bool, bool, error)
+	GetUsersContext(ctx context.Context) ([]slack.User, error)
 }
 
 // mockSlackClient implements slackClientInterface for testing
@@ -20,7 +23,9 @@ type mockSlackClient struct {
 	openConversationCalls []openConversationCall
 	shouldFailPostMessage bool
 	shouldFailOpenIM      bool
+	shouldFailGetUsers    bool
 	imChannelID           string
+	users                 []slack.User
 }
 
 type postMessageCall struct {
@@ -61,6 +66,13 @@ func (m *mockSlackClient) OpenConversationContext(ctx context.Context, params *s
 			},
 		},
 	}, false, false, nil
+}
+
+func (m *mockSlackClient) GetUsersContext(ctx context.Context) ([]slack.User, error) {
+	if m.shouldFailGetUsers {
+		return nil, errors.New("failed to get users")
+	}
+	return m.users, nil
 }
 
 // TestSendDirectMessageCurrentBehavior demonstrates the current failing behavior
@@ -217,4 +229,138 @@ func (bm *testableBroadcastManager) sendDirectMessageWithIM(ctx context.Context,
 	}
 
 	return nil
+}
+
+func (bm *testableBroadcastManager) lookupUserByName(ctx context.Context, searchName string) (string, error) {
+	users, err := bm.client.GetUsersContext(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	searchLower := strings.ToLower(searchName)
+
+	for _, user := range users {
+		// Check username, real name, and display name (case insensitive)
+		if strings.ToLower(user.Name) == searchLower ||
+			strings.ToLower(user.RealName) == searchLower ||
+			strings.ToLower(user.Profile.DisplayName) == searchLower {
+			return user.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("user not found: %s", searchName)
+}
+
+// TestLookupUserByName tests username to user ID resolution
+func TestLookupUserByName(t *testing.T) {
+	ctx := context.Background()
+
+	// Setup mock users
+	mockUsers := []slack.User{
+		{
+			ID:       "U123456789",
+			Name:     "olle",
+			RealName: "Olle Forsslof",
+			Profile:  slack.UserProfile{DisplayName: "Olle F"},
+		},
+		{
+			ID:       "U987654321",
+			Name:     "john.doe",
+			RealName: "John Doe",
+			Profile:  slack.UserProfile{DisplayName: "Johnny"},
+		},
+		{
+			ID:       "U555666777",
+			Name:     "jane",
+			RealName: "Jane Smith",
+			Profile:  slack.UserProfile{DisplayName: ""},
+		},
+	}
+
+	tests := []struct {
+		name           string
+		searchName     string
+		expectedUserID string
+		expectError    bool
+	}{
+		{
+			name:           "Find by username",
+			searchName:     "olle",
+			expectedUserID: "U123456789",
+			expectError:    false,
+		},
+		{
+			name:           "Find by real name",
+			searchName:     "John Doe",
+			expectedUserID: "U987654321",
+			expectError:    false,
+		},
+		{
+			name:           "Find by display name",
+			searchName:     "Johnny",
+			expectedUserID: "U987654321",
+			expectError:    false,
+		},
+		{
+			name:           "Case insensitive search",
+			searchName:     "OLLE",
+			expectedUserID: "U123456789",
+			expectError:    false,
+		},
+		{
+			name:           "User not found",
+			searchName:     "nonexistent",
+			expectedUserID: "",
+			expectError:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockClient := &mockSlackClient{
+				users: mockUsers,
+			}
+
+			bm := &testableBroadcastManager{
+				client: mockClient,
+			}
+
+			userID, err := bm.lookupUserByName(ctx, tt.searchName)
+
+			if tt.expectError && err == nil {
+				t.Errorf("Expected error for search name '%s', but got none", tt.searchName)
+			}
+
+			if !tt.expectError && err != nil {
+				t.Errorf("Unexpected error for search name '%s': %v", tt.searchName, err)
+			}
+
+			if userID != tt.expectedUserID {
+				t.Errorf("Expected user ID '%s' for search name '%s', got '%s'", tt.expectedUserID, tt.searchName, userID)
+			}
+		})
+	}
+}
+
+// TestLookupUserByNameAPIFailure tests error handling when GetUsers API fails
+func TestLookupUserByNameAPIFailure(t *testing.T) {
+	ctx := context.Background()
+
+	mockClient := &mockSlackClient{
+		shouldFailGetUsers: true,
+	}
+
+	bm := &testableBroadcastManager{
+		client: mockClient,
+	}
+
+	userID, err := bm.lookupUserByName(ctx, "olle")
+
+	if err == nil {
+		t.Error("Expected error when GetUsers fails, but got none")
+	}
+
+	if userID != "" {
+		t.Errorf("Expected empty user ID when GetUsers fails, got '%s'", userID)
+	}
 }

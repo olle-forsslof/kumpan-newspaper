@@ -420,8 +420,12 @@ func (ah *AdminHandler) handleAssignQuestion(ctx context.Context, args []string)
 	var errors []string
 
 	for _, userArg := range users {
-		// Clean user ID (remove @ symbol if present)
-		userID := strings.TrimPrefix(userArg, "@")
+		// Resolve user identifier (handles both user IDs and usernames)
+		userID, err := ah.resolveUserIdentifier(ctx, userArg)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("User %s: %v", userArg, err))
+			continue
+		}
 
 		// Select question based on content type
 		var question *database.Question
@@ -543,6 +547,29 @@ func (ah *AdminHandler) sendDirectMessage(ctx context.Context, userID, message s
 	}
 	// Use the broadcast manager's sendDirectMessage method (it's private but we can call it from same package)
 	return ah.broadcastManager.sendDirectMessage(ctx, userID, message)
+}
+
+// resolveUserIdentifier converts a username or user identifier to a Slack user ID
+func (ah *AdminHandler) resolveUserIdentifier(ctx context.Context, userArg string) (string, error) {
+	// Strip @ prefix if present
+	cleanInput := strings.TrimPrefix(userArg, "@")
+
+	// If it's already a user ID (starts with "U" and has reasonable length), return it
+	if strings.HasPrefix(cleanInput, "U") && len(cleanInput) > 5 {
+		return cleanInput, nil
+	}
+
+	// Otherwise, try to look up the user by name
+	if ah.broadcastManager == nil {
+		return "", fmt.Errorf("cannot lookup user: broadcast manager not available")
+	}
+
+	userID, err := ah.broadcastManager.lookupUserByName(ctx, cleanInput)
+	if err != nil {
+		return "", fmt.Errorf("failed to find user '%s': %w", cleanInput, err)
+	}
+
+	return userID, nil
 }
 
 // handleWeekStatus shows current week dashboard with assignments and submission status

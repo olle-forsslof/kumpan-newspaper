@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/slack-go/slack"
 )
@@ -117,6 +118,27 @@ func (bm *BroadcastManager) sendDirectMessage(ctx context.Context, userID, messa
 	}
 
 	return nil
+}
+
+// lookupUserByName searches for a user by username, real name, or display name
+func (bm *BroadcastManager) lookupUserByName(ctx context.Context, searchName string) (string, error) {
+	users, err := bm.getAllWorkspaceUsers(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get users: %w", err)
+	}
+
+	searchLower := strings.ToLower(searchName)
+
+	for _, user := range users {
+		// Check username, real name, and display name (case insensitive)
+		if strings.ToLower(user.Name) == searchLower ||
+			strings.ToLower(user.RealName) == searchLower ||
+			strings.ToLower(user.Profile.DisplayName) == searchLower {
+			return user.ID, nil
+		}
+	}
+
+	return "", fmt.Errorf("user not found: %s", searchName)
 }
 
 // createWellnessBroadcastMessage creates the message content for wellness question requests
