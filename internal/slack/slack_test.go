@@ -76,7 +76,7 @@ func TestSlackBot_StoreNewsSubmission(t *testing.T) {
 	}
 
 	// Verify response indicates successful submission
-	if !strings.Contains(response.Text, "News submission received") {
+	if !strings.Contains(response.Text, "submission received") {
 		t.Errorf("Expected success message, got: %s", response.Text)
 	}
 

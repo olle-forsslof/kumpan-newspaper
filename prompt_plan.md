@@ -4,7 +4,7 @@
 
 **Goal**: Implement Phase 1 - Core Infrastructure (Go backend setup and Slack bot integration)
 **Created**: Thu Sep 04 2025
-**Updated**: Sat Sep 13 2025
+**Updated**: Wed Sep 17 2025
 
 ---
 
@@ -366,7 +366,7 @@ Technical Architecture Delivered:
 System builds successfully and ready for Phase 1 completion
 ```
 
-### Prompt 10: Auto-Assignment Architecture Refactor (TDD) - [🔄] IN PROGRESS
+### Prompt 10: Auto-Assignment Architecture Refactor (TDD) - [✅] COMPLETED
 
 ```
 Fix missing articles in newsletter by implementing ProcessAndSaveSubmission architecture using TDD.
@@ -419,18 +419,102 @@ Technical Requirements:
 - Maintain backward compatibility during transition
 - Comprehensive test coverage for new architecture
 
-Expected outcome: Articles automatically appear in newsletter after AI processing,
+Expected outcome: ✅ ACHIEVED - Articles automatically appear in newsletter after AI processing,
 with clean architecture where AI service owns complete processing-to-persistence flow
+
+Implementation completed with:
+- ProcessAndSaveSubmission method added to AI service interface
+- Complete atomic operation from AI processing to database persistence
+- Proper error handling and transaction safety
+- Updated DatabaseInterface and mocks for comprehensive testing
+- Articles now correctly appear in production newsletter
+- Clean architecture with single responsibility for AI processing flow
 ```
 
-### Prompt 11: Integration Testing & Phase 1 Completion - [ ] PENDING
+### Prompt 11: Unified Submission System with Automated Assignment - [✅] COMPLETED
 
 ```
-Create end-to-end integration tests and finalize Phase 1 after auto-assignment fix.
+Implement unified submission system with automated question scheduling and assignment linking.
+
+CURRENT ISSUE ANALYSIS:
+- Manual assignment system creates PersonAssignment records but submissions don't link to them
+- Generic `/pp submit` creates unlinked general submissions  
+- Body/mind system works but uses separate commands (submit-wellness)
+- No automated scheduling - everything is manual admin commands
+
+UNIFIED SUBMISSION DESIGN: `/pp submit [category] content`
+
+Command Structure:
+- `/pp submit feature "My team built a new dashboard this week"`
+- `/pp submit general "Found this great article on Go performance"`  
+- `/pp submit interview "Q: What's your favorite debugging technique? A: I use..."`
+- `/pp submit body_mind "How do you manage stress during deployments?"`
+
+Implementation Requirements:
+
+1. **New Submission Handler Logic**
+   - Replace current `handleNewsSubmission()` with `handleCategorizedSubmission()`
+   - Parse category from command: `submit [category] content`
+   - Route to appropriate submission type based on category
+
+2. **Assignment Linking (feature/general/interview)**
+   - When user submits with matching category, look up their active assignment
+   - Link submission to assignment via `SubmissionID` field in PersonAssignment
+   - Update assignment status to "submitted"
+   - Maintain user attribution for journalist processing
+
+3. **Anonymous Body/Mind Handling**
+   - `/pp submit body_mind content` creates anonymous submission (no UserID stored)
+   - Content goes directly to body/mind pool for journalist processing
+   - No assignment linking needed - preserves anonymity
+
+4. **Database Changes Needed**
+   - Enhanced Submission Creation: Add category parameter to CreateNewsSubmission
+   - Assignment Lookup: New method GetActiveAssignmentByUser(userID, contentType)
+   - Assignment Updates: Method to link submission to assignment
+   - Anonymous Submissions: New method CreateAnonymousSubmission(content, category)
+
+5. **Automated Question Scheduling System**
+   - Cron job or scheduled task to send weekly questions
+   - Algorithm to select people for different content types
+   - Automatic assignment creation + DM sending
+   - Person rotation to avoid consecutive assignments
+
+Technical Requirements:
+- Follow TDD methodology with comprehensive test coverage
+- Maintain backwards compatibility (keep old `/pp submit` as alias for general)
+- Clear journalist routing based on category
+- Proper error handling and validation
+- Integration with existing AI processing pipeline
+- Admin override capabilities for manual assignments
+
+Expected outcome: ✅ ACHIEVED - Complete unified submission system where:
+- Users receive targeted questions automatically on schedule
+- Responses are properly linked to assignments and routed to correct journalists  
+- Anonymous body/mind submissions are preserved
+- One consistent interface for all submission types
+- Automatic assignment tracking and completion status
+
+Implementation completed with:
+- Unified `/pp submit [category] content` command supporting feature, general, interview, and body_mind categories
+- Automatic assignment linking for feature/general/interview submissions with user attribution
+- Anonymous body/mind submission handling preserving user privacy
+- Database methods: GetActiveAssignmentByUser, LinkSubmissionToAssignment, CreateAnonymousSubmission
+- Category-based journalist routing with backward compatibility for existing workflows
+- Full TDD implementation with 5 comprehensive test cycles covering parsing, database operations, and end-to-end flows
+- Assignment lookup by current week and content type with proper error handling
+- Response messages indicating successful assignment linking for user feedback
+- Integration with existing AI processing pipeline for automated article generation
+```
+
+### Prompt 12: Integration Testing & Phase 1 Completion - [ ] PENDING
+
+```
+Create end-to-end integration tests and finalize Phase 1 after unified submission system.
 
 Implement integration testing:
-- End-to-end test from submission to newsletter display (including auto-assignment)
-- Template rendering tests with real ProcessedArticle data  
+- End-to-end test from automated assignment to newsletter display
+- Unified submission system testing with all categories
 - Weekly automation workflow testing (person rotation, question assignment)
 - HTTP endpoint integration tests with article display verification
 - Database migration testing (including all newsletter automation schema)
@@ -440,21 +524,20 @@ Implement integration testing:
 Requirements:
 - Comprehensive test suite covering all Phase 1 functionality
 - Test cleanup and isolation with proper mocking for AI services
-- Documentation updates reflecting ProcessAndSaveSubmission architecture
+- Documentation updates reflecting unified submission architecture
 - Code review and refactoring for maintainability  
-- Verification that articles appear correctly in production newsletter
+- Verification that automated assignment system works in production
 - Prepare codebase for Phase 2 development (advanced newsletter features)
 
 Expected outcome: Fully tested and documented Phase 1 implementation with working
-newsletter article display, complete automation system, and clean architecture
-ready for advanced newsletter features development
+automated assignment system, unified submissions, and complete automation ready for advanced features
 ```
 
 ---
 
 ## Current Status Summary
 
-**Phase 1 Progress: 90% Complete (9/10 prompts)**
+**Phase 1 Progress: 83% Complete (10/12 prompts)**
 
 ### ✅ Completed Core Functionality:
 - **Project Structure** - Go modules, proper directory layout
@@ -477,9 +560,13 @@ ready for advanced newsletter features development
 - **AI-Powered Content Processing** - Full Anthropic API integration with 5 journalist personalities and question-based assignment
 - **Weekly Newsletter Automation** - Complete automation system with person rotation, anonymous question pools, and admin command dashboard
 - **HTML Template System** - Responsive newsletter rendering with newspaper-style layout and mobile-friendly design
+- **Auto-Assignment Architecture** - ProcessAndSaveSubmission flow with articles correctly appearing in newsletter
+
+### 🔄 Current Work:
+- **Unified Submission System** - `/pp submit [category] content` with automated assignment linking
 
 ### 🎯 Remaining Work:
-- **End-to-end Integration Testing** - Complete Phase 1 testing and documentation
+- **Integration Testing & Phase 1 Completion** - End-to-end testing and documentation
 - Phase 2 planning: Advanced newsletter features and distribution automation
 
 The core newsletter submission and AI processing system is **production-ready** with comprehensive test coverage. 

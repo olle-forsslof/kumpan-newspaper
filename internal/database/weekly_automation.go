@@ -198,6 +198,120 @@ func (db *DB) GetPersonAssignmentsByIssue(issueID int) ([]PersonAssignment, erro
 	return assignments, nil
 }
 
+// GetActiveAssignmentByUser retrieves a person's active assignment for current week by content type
+func (db *DB) GetActiveAssignmentByUser(userID string, contentType ContentType) (*PersonAssignment, error) {
+	// Get current week's issue
+	now := time.Now()
+	year, week := now.ISOWeek()
+
+	issue, err := db.GetOrCreateWeeklyIssue(week, year)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current week issue: %w", err)
+	}
+
+	query := `
+		SELECT id, issue_id, person_id, content_type, question_id, submission_id, assigned_at, created_at
+		FROM person_assignments 
+		WHERE issue_id = ? AND person_id = ? AND content_type = ?
+		LIMIT 1`
+
+	var assignment PersonAssignment
+	var questionID sql.NullInt64
+	var submissionID sql.NullInt64
+
+	err = db.QueryRow(query, issue.ID, userID, contentType).Scan(
+		&assignment.ID,
+		&assignment.IssueID,
+		&assignment.PersonID,
+		&assignment.ContentType,
+		&questionID,
+		&submissionID,
+		&assignment.AssignedAt,
+		&assignment.CreatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("no active assignment found for user %s with content type %s", userID, contentType)
+		}
+		return nil, fmt.Errorf("failed to get active assignment: %w", err)
+	}
+
+	// Handle nullable fields
+	if questionID.Valid {
+		assignment.QuestionID = &[]int{int(questionID.Int64)}[0]
+	}
+	if submissionID.Valid {
+		assignment.SubmissionID = &[]int{int(submissionID.Int64)}[0]
+	}
+
+	return &assignment, nil
+}
+
+// LinkSubmissionToAssignment links a submission to an existing assignment
+func (db *DB) LinkSubmissionToAssignment(assignmentID, submissionID int) error {
+	query := `
+		UPDATE person_assignments 
+		SET submission_id = ?
+		WHERE id = ?`
+
+	result, err := db.Exec(query, submissionID, assignmentID)
+	if err != nil {
+		return fmt.Errorf("failed to link submission to assignment: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get affected rows: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("assignment with ID %d not found", assignmentID)
+	}
+
+	return nil
+}
+
+// GetPersonAssignmentByID retrieves a specific person assignment by ID
+func (db *DB) GetPersonAssignmentByID(assignmentID int) (*PersonAssignment, error) {
+	query := `
+		SELECT id, issue_id, person_id, content_type, question_id, submission_id, assigned_at, created_at
+		FROM person_assignments 
+		WHERE id = ?`
+
+	var assignment PersonAssignment
+	var questionID sql.NullInt64
+	var submissionID sql.NullInt64
+
+	err := db.QueryRow(query, assignmentID).Scan(
+		&assignment.ID,
+		&assignment.IssueID,
+		&assignment.PersonID,
+		&assignment.ContentType,
+		&questionID,
+		&submissionID,
+		&assignment.AssignedAt,
+		&assignment.CreatedAt,
+	)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("assignment with ID %d not found", assignmentID)
+		}
+		return nil, fmt.Errorf("failed to get assignment: %w", err)
+	}
+
+	// Handle nullable fields
+	if questionID.Valid {
+		assignment.QuestionID = &[]int{int(questionID.Int64)}[0]
+	}
+	if submissionID.Valid {
+		assignment.SubmissionID = &[]int{int(submissionID.Int64)}[0]
+	}
+
+	return &assignment, nil
+}
+
 // CreateBodyMindQuestion creates a new anonymous body/mind question for the pool
 func (db *DB) CreateBodyMindQuestion(questionText, category string) (int, error) {
 	query := `

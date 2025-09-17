@@ -134,9 +134,9 @@ func (b *slackBot) HandleSlashCommand(ctx context.Context, cmd SlashCommand) (*S
 		return b.adminHandler.HandleAdminCommand(ctx, cmd.UserID, adminCmd)
 	}
 
-	// Handle news story submissions for regular users
+	// Handle news story submissions for regular users (unified submission system)
 	if strings.HasPrefix(cmd.Text, "submit ") {
-		return b.handleNewsSubmission(ctx, cmd)
+		return b.handleCategorizedSubmission(ctx, cmd)
 	}
 
 	// Handle regular newsletter functionality
@@ -165,11 +165,19 @@ func (b *slackBot) handleRegularHelp() *SlashCommandResponse {
 		"This bot helps manage daily/weekly newsletter questions and collect news stories.\n\n" +
 		"*Available Commands:*\n" +
 		"• `help` - Show this help message\n" +
-		"• `submit [your news story]` - Submit a news story for the newsletter\n" +
+		"• `submit [category] [content]` - Submit categorized content for the newsletter\n" +
+		"• `submit [content]` - Submit general content (backward compatibility)\n" +
 		"• `admin help` - Show admin commands (authorized users only)\n\n" +
+		"*Content Categories:*\n" +
+		"• `feature` - Major features, launches, or announcements\n" +
+		"• `general` - Regular news, updates, or interesting links\n" +
+		"• `interview` - Q&A format content or interviews\n" +
+		"• `body_mind` - Wellness content (submitted anonymously)\n\n" +
 		"*Examples:*\n" +
-		"• `submit Check out this cool new Go library: https://github.com/example/repo`\n" +
-		"• `submit Our team shipped the new user dashboard this week!`\n\n" +
+		"• `submit feature Our team launched the new analytics dashboard!`\n" +
+		"• `submit general Found this great article on Go performance`\n" +
+		"• `submit body_mind How do you manage stress during deployments?`\n" +
+		"• `submit Check out this cool library` (defaults to general)\n\n" +
 		"*For Admins:*\n" +
 		"Admin users can manage newsletter questions, view submissions, and configure the bot."
 

@@ -65,6 +65,14 @@ func (m *MockQuestionSelector) AddQuestion(ctx context.Context, text, category s
 	return &database.Question{ID: 1, Text: text, Category: category}, nil
 }
 
+func (m *MockQuestionSelector) GetQuestionByID(ctx context.Context, questionID int) (*database.Question, error) {
+	return &database.Question{
+		ID:       questionID,
+		Text:     "Test question",
+		Category: "general",
+	}, nil
+}
+
 func NewMockBot() *MockBot {
 	return &MockBot{
 		responses:            make(map[string]*SlashCommandResponse),
