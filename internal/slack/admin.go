@@ -530,14 +530,30 @@ func (ah *AdminHandler) handleAssignQuestion(ctx context.Context, args []string)
 	}, nil
 }
 
+// contentTypeToCategory maps admin contentType to submission category
+func contentTypeToCategory(contentType string) string {
+	switch contentType {
+	case "feature":
+		return "feature"
+	case "general":
+		return "general"
+	case "body_mind":
+		return "body_mind"
+	default:
+		return "general" // fallback
+	}
+}
+
 // createQuestionMessage creates the DM message with the question
 func (ah *AdminHandler) createQuestionMessage(questionText, contentType string, week, year int) string {
+	category := contentTypeToCategory(contentType)
 	return fmt.Sprintf("📝 *Newsletter Assignment - Week %d, %d*\n\n"+
 		"You've been assigned to write %s content for this week's newsletter.\n\n"+
 		"*Your question:*\n> %s\n\n"+
-		"Please submit your response using: `/pp submit \"your content here\"`\n\n"+
+		"Please submit your response using: `/pp submit %s \"your content here\"`\n\n"+
+		"You can also simply reply to this message with your content.\n\n"+
 		"Need help? Contact an admin or check `/pp help` for more options.",
-		week, year, contentType, questionText)
+		week, year, contentType, questionText, category)
 }
 
 // sendDirectMessage sends a direct message to a user (wrapper for broadcast manager)

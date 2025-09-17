@@ -152,32 +152,107 @@ func (b *slackBot) HandleEventCallback(ctx context.Context, event SlackEvent) er
 		return nil
 	}
 
-	// for now echo the message
+	// Handle direct messages as potential assignment replies
 	if event.Type == "message" && event.Text != "" {
-		return b.SendMessage(ctx, event.Channel, fmt.Sprintf("You said %s", event.Text))
+		// Check if this is a direct message (channel starts with "D")
+		if strings.HasPrefix(event.Channel, "D") && event.User != "" {
+			return b.handleDirectMessageReply(ctx, event)
+		}
 	}
 
 	return nil
 }
 
+// handleDirectMessageReply processes a direct message as a potential assignment submission
+func (b *slackBot) handleDirectMessageReply(ctx context.Context, event SlackEvent) error {
+	userID := event.User
+	content := strings.TrimSpace(event.Text)
+
+	if content == "" {
+		return b.SendMessage(ctx, event.Channel, "Please provide some content for your submission.")
+	}
+
+	// Look up user's active assignments
+	if b.db == nil {
+		return b.SendMessage(ctx, event.Channel, "❌ Assignment lookup not available (database not configured)")
+	}
+
+	assignments, err := b.db.GetActiveAssignmentsByUser(userID)
+	if err != nil {
+		slog.Error("Failed to get active assignments for user", "user", userID, "error", err)
+		return b.SendMessage(ctx, event.Channel, "❌ Failed to look up your assignments. Please try using the `/pp submit` command instead.")
+	}
+
+	if len(assignments) == 0 {
+		return b.SendMessage(ctx, event.Channel, "You don't have any active newsletter assignments this week. Use `/pp submit general \"your content\"` to submit general news.")
+	}
+
+	if len(assignments) > 1 {
+		// This shouldn't happen due to our duplicate prevention, but handle gracefully
+		slog.Warn("User has multiple assignments", "user", userID, "count", len(assignments))
+		return b.SendMessage(ctx, event.Channel, "You have multiple assignments this week. Please use the `/pp submit [category] \"content\"` command to specify which type of content you're submitting.")
+	}
+
+	// Extract category from the single assignment
+	assignment := assignments[0]
+	category := contentTypeToSubmissionCategory(assignment.ContentType)
+
+	// Create a simulated SlashCommand to reuse existing submission logic
+	simulatedCmd := SlashCommand{
+		Command:   "/pp",
+		Text:      fmt.Sprintf("submit %s %s", category, content),
+		UserID:    userID,
+		ChannelID: event.Channel,
+	}
+
+	// Process through existing categorized submission handler
+	response, err := b.handleCategorizedSubmission(ctx, simulatedCmd)
+	if err != nil {
+		slog.Error("Failed to process DM submission", "user", userID, "error", err)
+		return b.SendMessage(ctx, event.Channel, "❌ Failed to process your submission. Please try again or use the `/pp submit` command.")
+	}
+
+	// Send the response as a regular message instead of slash command response
+	return b.SendMessage(ctx, event.Channel, response.Text)
+}
+
+// contentTypeToSubmissionCategory maps database ContentType to submission category
+func contentTypeToSubmissionCategory(contentType database.ContentType) string {
+	switch contentType {
+	case database.ContentTypeFeature:
+		return "feature"
+	case database.ContentTypeGeneral:
+		return "general"
+	case database.ContentTypeBodyMind:
+		return "body_mind"
+	default:
+		return "general"
+	}
+}
+
 func (b *slackBot) handleRegularHelp() *SlashCommandResponse {
 	help := "*Newsletter Bot Help*\n\n" +
 		"This bot helps manage daily/weekly newsletter questions and collect news stories.\n\n" +
-		"*Available Commands:*\n" +
-		"• `help` - Show this help message\n" +
-		"• `submit [category] [content]` - Submit categorized content for the newsletter\n" +
-		"• `submit [content]` - Submit general content (backward compatibility)\n" +
-		"• `admin help` - Show admin commands (authorized users only)\n\n" +
+		"*Submission Methods:*\n" +
+		"• **Slash Command**: `/pp submit [category] \"your content\"`\n" +
+		"• **Reply to Bot**: Simply reply to newsletter assignment messages\n\n" +
 		"*Content Categories:*\n" +
 		"• `feature` - Major features, launches, or announcements\n" +
 		"• `general` - Regular news, updates, or interesting links\n" +
 		"• `interview` - Q&A format content or interviews\n" +
 		"• `body_mind` - Wellness content (submitted anonymously)\n\n" +
-		"*Examples:*\n" +
-		"• `submit feature Our team launched the new analytics dashboard!`\n" +
-		"• `submit general Found this great article on Go performance`\n" +
-		"• `submit body_mind How do you manage stress during deployments?`\n" +
-		"• `submit Check out this cool library` (defaults to general)\n\n" +
+		"*Command Examples:*\n" +
+		"• `/pp submit feature \"Our team launched the new analytics dashboard!\"`\n" +
+		"• `/pp submit general \"Found this great article on Go performance\"`\n" +
+		"• `/pp submit body_mind \"How do you manage stress during deployments?\"`\n" +
+		"• `/pp submit \"Check out this cool library\"` (defaults to general)\n\n" +
+		"*Assignment Workflow:*\n" +
+		"• Receive assignment DM with specific question and category\n" +
+		"• Reply directly to the bot OR use the provided slash command\n" +
+		"• One assignment per person per week\n\n" +
+		"*Available Commands:*\n" +
+		"• `/pp help` - Show this help message\n" +
+		"• `/pp admin help` - Show admin commands (authorized users only)\n\n" +
 		"*For Admins:*\n" +
 		"Admin users can manage newsletter questions, view submissions, and configure the bot."
 

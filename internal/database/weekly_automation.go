@@ -119,6 +119,23 @@ func (db *DB) CreatePersonAssignment(assignment PersonAssignment) (int, error) {
 		return 0, fmt.Errorf("validation failed: %w", err)
 	}
 
+	// Check for existing assignments for this user in the same issue
+	checkQuery := `
+		SELECT COUNT(*) 
+		FROM person_assignments 
+		WHERE issue_id = ? AND person_id = ?`
+
+	var count int
+	err := db.QueryRow(checkQuery, assignment.IssueID, assignment.PersonID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to check existing assignments: %w", err)
+	}
+
+	if count > 0 {
+		return 0, fmt.Errorf("user %s already has an assignment for this week (issue ID: %d)",
+			assignment.PersonID, assignment.IssueID)
+	}
+
 	query := `
 		INSERT INTO person_assignments (
 			issue_id, person_id, content_type, question_id, submission_id, assigned_at
@@ -246,6 +263,119 @@ func (db *DB) GetActiveAssignmentByUser(userID string, contentType ContentType) 
 	}
 
 	return &assignment, nil
+}
+
+// GetActiveAssignmentsByUser retrieves all assignments for a user in the current week
+func (db *DB) GetActiveAssignmentsByUser(userID string) ([]PersonAssignment, error) {
+	// Get current week's issue
+	now := time.Now()
+	year, week := now.ISOWeek()
+
+	issue, err := db.GetOrCreateWeeklyIssue(week, year)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current week issue: %w", err)
+	}
+
+	query := `
+		SELECT id, issue_id, person_id, content_type, question_id, submission_id, assigned_at, created_at
+		FROM person_assignments 
+		WHERE issue_id = ? AND person_id = ?
+		ORDER BY created_at ASC`
+
+	rows, err := db.Query(query, issue.ID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user assignments: %w", err)
+	}
+	defer rows.Close()
+
+	var assignments []PersonAssignment
+	for rows.Next() {
+		var assignment PersonAssignment
+		var questionID sql.NullInt64
+		var submissionID sql.NullInt64
+
+		err := rows.Scan(
+			&assignment.ID,
+			&assignment.IssueID,
+			&assignment.PersonID,
+			&assignment.ContentType,
+			&questionID,
+			&submissionID,
+			&assignment.AssignedAt,
+			&assignment.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan assignment: %w", err)
+		}
+
+		// Handle nullable fields
+		if questionID.Valid {
+			assignment.QuestionID = &[]int{int(questionID.Int64)}[0]
+		}
+		if submissionID.Valid {
+			assignment.SubmissionID = &[]int{int(submissionID.Int64)}[0]
+		}
+
+		assignments = append(assignments, assignment)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading assignment rows: %w", err)
+	}
+
+	return assignments, nil
+}
+
+// GetAssignmentsByUserAndIssue retrieves all assignments for a user in a specific issue
+func (db *DB) GetAssignmentsByUserAndIssue(userID string, issueID int) ([]PersonAssignment, error) {
+	query := `
+		SELECT id, issue_id, person_id, content_type, question_id, submission_id, assigned_at, created_at
+		FROM person_assignments 
+		WHERE issue_id = ? AND person_id = ?
+		ORDER BY created_at ASC`
+
+	rows, err := db.Query(query, issueID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user assignments: %w", err)
+	}
+	defer rows.Close()
+
+	var assignments []PersonAssignment
+	for rows.Next() {
+		var assignment PersonAssignment
+		var questionID sql.NullInt64
+		var submissionID sql.NullInt64
+
+		err := rows.Scan(
+			&assignment.ID,
+			&assignment.IssueID,
+			&assignment.PersonID,
+			&assignment.ContentType,
+			&questionID,
+			&submissionID,
+			&assignment.AssignedAt,
+			&assignment.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan assignment: %w", err)
+		}
+
+		// Handle nullable fields
+		if questionID.Valid {
+			assignment.QuestionID = &[]int{int(questionID.Int64)}[0]
+		}
+		if submissionID.Valid {
+			assignment.SubmissionID = &[]int{int(submissionID.Int64)}[0]
+		}
+
+		assignments = append(assignments, assignment)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error reading assignment rows: %w", err)
+	}
+
+	return assignments, nil
 }
 
 // LinkSubmissionToAssignment links a submission to an existing assignment

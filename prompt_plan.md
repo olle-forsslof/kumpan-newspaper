@@ -507,30 +507,51 @@ Implementation completed with:
 - Integration with existing AI processing pipeline for automated article generation
 ```
 
-### Prompt 12: Integration Testing & Phase 1 Completion - [ ] PENDING
+### Prompt 12: Newsletter Assignment UX Improvements - [🔄] IN PROGRESS
 
 ```
-Create end-to-end integration tests and finalize Phase 1 after unified submission system.
+Fix critical UX issues with newsletter assignment workflow and submission commands.
 
-Implement integration testing:
-- End-to-end test from automated assignment to newsletter display
-- Unified submission system testing with all categories
-- Weekly automation workflow testing (person rotation, question assignment)
-- HTTP endpoint integration tests with article display verification
-- Database migration testing (including all newsletter automation schema)
-- AI processing error scenario testing with ProcessAndSaveSubmission
-- Performance baseline measurements for complete processing pipeline
+CRITICAL ISSUES IDENTIFIED:
+- Newsletter assignment messages tell users `/pp submit "content"` but should include category parameter
+- Users cannot reply directly to bot assignment messages (must use slash commands)  
+- Multiple assignments per user per week creates confusion for reply-to-bot functionality
+- Assignment instructions don't match actual command requirements
 
-Requirements:
-- Comprehensive test suite covering all Phase 1 functionality
-- Test cleanup and isolation with proper mocking for AI services
-- Documentation updates reflecting unified submission architecture
-- Code review and refactoring for maintainability  
-- Verification that automated assignment system works in production
-- Prepare codebase for Phase 2 development (advanced newsletter features)
+IMPLEMENTATION PLAN:
 
-Expected outcome: Fully tested and documented Phase 1 implementation with working
-automated assignment system, unified submissions, and complete automation ready for advanced features
+1. **Prevent Multiple Assignments Per User Per Week**
+   - Add validation to CreatePersonAssignment to check for existing assignments
+   - Create GetActiveAssignmentsByUser function (returns all assignments for current week)
+   - Return helpful error when duplicate assignment attempted
+   - Ensure one assignment per user per week policy
+
+2. **Fix Assignment Message Instructions**
+   - Map contentType to submission category in createQuestionMessage
+   - Update message to show correct command: `/pp submit feature "your content"`
+   - Include category parameter based on assignment type
+
+3. **Add Reply-to-Bot Functionality**
+   - Modify HandleEventCallback to detect DMs to bot
+   - Look up user's single active assignment for current week
+   - Extract category from assignment and process as categorized submission
+   - Route through existing handleCategorizedSubmission logic
+   - Handle edge cases (no assignment, errors) gracefully
+
+4. **Update Help Text and Documentation**
+   - Clarify category usage in help commands
+   - Update admin command documentation
+   - Ensure consistent messaging across all interfaces
+
+Technical Requirements:
+- Follow TDD methodology for assignment validation
+- Maintain backward compatibility with existing slash commands
+- Proper error handling and user feedback
+- Integration with existing unified submission system
+- Comprehensive test coverage for new functionality
+
+Expected outcome: Seamless UX where users can either use slash commands OR simply reply to assignment messages, 
+with clear instructions and no confusion about categories or duplicate assignments
 ```
 
 ---
@@ -563,10 +584,10 @@ automated assignment system, unified submissions, and complete automation ready 
 - **Auto-Assignment Architecture** - ProcessAndSaveSubmission flow with articles correctly appearing in newsletter
 
 ### 🔄 Current Work:
-- **Unified Submission System** - `/pp submit [category] content` with automated assignment linking
+- **Newsletter Assignment UX Improvements** - Fix category instructions, add reply-to-bot functionality, prevent duplicate assignments
 
 ### 🎯 Remaining Work:
-- **Integration Testing & Phase 1 Completion** - End-to-end testing and documentation
+- **Integration Testing & Phase 1 Completion** - End-to-end testing and documentation after UX improvements
 - Phase 2 planning: Advanced newsletter features and distribution automation
 
 The core newsletter submission and AI processing system is **production-ready** with comprehensive test coverage. 

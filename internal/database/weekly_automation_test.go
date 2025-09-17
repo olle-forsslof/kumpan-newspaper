@@ -1,7 +1,9 @@
 package database
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -468,5 +470,147 @@ func TestBodyMindQuestionValidation(t *testing.T) {
 				t.Errorf("Expected no validation error, got %v", err)
 			}
 		})
+	}
+}
+
+func TestDuplicateAssignmentPrevention(t *testing.T) {
+	// Create a temporary database for testing
+	tempFile := "/tmp/test_duplicate_assignments.db"
+	defer os.Remove(tempFile)
+
+	db, err := NewSimple(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	// Run migrations to set up the schema
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+
+	// Create a weekly issue for current week
+	year, week := time.Now().ISOWeek()
+	issue, err := db.GetOrCreateWeeklyIssue(week, year)
+	if err != nil {
+		t.Fatalf("Failed to create issue: %v", err)
+	}
+
+	userID := "U123456"
+
+	// Create first assignment
+	firstAssignment := PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: ContentTypeFeature,
+		AssignedAt:  time.Now(),
+	}
+
+	assignmentID, err := db.CreatePersonAssignment(firstAssignment)
+	if err != nil {
+		t.Fatalf("Failed to create first assignment: %v", err)
+	}
+
+	if assignmentID == 0 {
+		t.Error("Expected non-zero assignment ID")
+	}
+
+	// Try to create second assignment for same user and same week (should fail)
+	secondAssignment := PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: ContentTypeGeneral,
+		AssignedAt:  time.Now(),
+	}
+
+	_, err = db.CreatePersonAssignment(secondAssignment)
+	if err == nil {
+		t.Error("Expected error when creating duplicate assignment, got nil")
+	}
+
+	expectedErrorMsg := fmt.Sprintf("user %s already has an assignment for this week", userID)
+	if !strings.Contains(err.Error(), expectedErrorMsg) {
+		t.Errorf("Expected error message to contain '%s', got: %s", expectedErrorMsg, err.Error())
+	}
+
+	// Verify only one assignment exists (using current week function)
+	assignments, err := db.GetActiveAssignmentsByUser(userID)
+	if err != nil {
+		t.Fatalf("Failed to get assignments: %v", err)
+	}
+
+	if len(assignments) != 1 {
+		t.Errorf("Expected 1 assignment, got %d", len(assignments))
+	}
+
+	if assignments[0].ContentType != ContentTypeFeature {
+		t.Errorf("Expected first assignment to be feature type, got %s", assignments[0].ContentType)
+	}
+}
+
+func TestGetActiveAssignmentsByUser(t *testing.T) {
+	// Create a temporary database for testing
+	tempFile := "/tmp/test_get_assignments.db"
+	defer os.Remove(tempFile)
+
+	db, err := NewSimple(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	// Run migrations to set up the schema
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+
+	userID := "U123456"
+
+	// Test with no assignments
+	assignments, err := db.GetActiveAssignmentsByUser(userID)
+	if err != nil {
+		t.Fatalf("Failed to get assignments: %v", err)
+	}
+
+	if len(assignments) != 0 {
+		t.Errorf("Expected 0 assignments for new user, got %d", len(assignments))
+	}
+
+	// Create a weekly issue for current week
+	year, week := time.Now().ISOWeek()
+	issue, err := db.GetOrCreateWeeklyIssue(week, year)
+	if err != nil {
+		t.Fatalf("Failed to create issue: %v", err)
+	}
+
+	// Create assignment
+	assignment := PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: ContentTypeFeature,
+		AssignedAt:  time.Now(),
+	}
+
+	_, err = db.CreatePersonAssignment(assignment)
+	if err != nil {
+		t.Fatalf("Failed to create assignment: %v", err)
+	}
+
+	// Test with one assignment
+	assignments, err = db.GetActiveAssignmentsByUser(userID)
+	if err != nil {
+		t.Fatalf("Failed to get assignments: %v", err)
+	}
+
+	if len(assignments) != 1 {
+		t.Errorf("Expected 1 assignment, got %d", len(assignments))
+	}
+
+	if assignments[0].ContentType != ContentTypeFeature {
+		t.Errorf("Expected feature assignment, got %s", assignments[0].ContentType)
+	}
+
+	if assignments[0].PersonID != userID {
+		t.Errorf("Expected assignment for user %s, got %s", userID, assignments[0].PersonID)
 	}
 }

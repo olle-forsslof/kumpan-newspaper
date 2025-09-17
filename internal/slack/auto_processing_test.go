@@ -436,6 +436,41 @@ func (m *MockDatabase) CreateProcessedArticle(article database.ProcessedArticle)
 	return newID, nil
 }
 
+// Assignment-related methods for DatabaseInterface compliance
+func (m *MockDatabase) GetActiveAssignmentByUser(userID string, contentType database.ContentType) (*database.PersonAssignment, error) {
+	// For now, return nil (no assignment found) - tests can override this if needed
+	return nil, fmt.Errorf("no active assignment found for user %s with content type %s", userID, contentType)
+}
+
+func (m *MockDatabase) GetActiveAssignmentsByUser(userID string) ([]database.PersonAssignment, error) {
+	// For now, return empty slice - tests can override this if needed
+	return []database.PersonAssignment{}, nil
+}
+
+func (m *MockDatabase) LinkSubmissionToAssignment(assignmentID, submissionID int) error {
+	// Mock implementation - just return success for testing
+	return nil
+}
+
+func (m *MockDatabase) GetPersonAssignmentByID(assignmentID int) (*database.PersonAssignment, error) {
+	// For now, return nil - tests can override this if needed
+	return nil, fmt.Errorf("assignment with ID %d not found", assignmentID)
+}
+
+func (m *MockDatabase) CreateAnonymousSubmission(content, category string) (*database.Submission, error) {
+	// Mock implementation - just return a simple submission for testing
+	return &database.Submission{
+		ID:      len(m.ProcessedArticles) + 1, // Simple ID generation
+		Content: content,
+		// Note: category is used for processing but not stored in Submission struct
+	}, nil
+}
+
+func (m *MockDatabase) GetAnonymousSubmissionsByCategory(category string) ([]database.Submission, error) {
+	// For now, return empty slice - tests can override this if needed
+	return []database.Submission{}, nil
+}
+
 // GetUnderlyingDB returns the embedded *database.DB for testing
 func (m *MockDatabase) GetUnderlyingDB() *database.DB {
 	return m.DB

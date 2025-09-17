@@ -2,6 +2,7 @@ package slack
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -402,4 +403,131 @@ func findAssignmentByContentType(assignments []database.PersonAssignment, conten
 		}
 	}
 	return nil
+}
+
+func TestReplyToBotSubmission(t *testing.T) {
+	// Create test database
+	tempFile := "/tmp/test_reply_to_bot.db"
+	defer os.Remove(tempFile)
+
+	testDB, err := database.NewSimple(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer testDB.Close()
+
+	if err := testDB.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate database: %v", err)
+	}
+
+	// Create newsletter issue and assignment for current week
+	year, week := time.Now().ISOWeek()
+	issue, err := testDB.GetOrCreateWeeklyIssue(week, year)
+	if err != nil {
+		t.Fatalf("Failed to create issue: %v", err)
+	}
+
+	userID := "U123456"
+	assignment := database.PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: database.ContentTypeFeature,
+		AssignedAt:  time.Now(),
+	}
+
+	_, err = testDB.CreatePersonAssignment(assignment)
+	if err != nil {
+		t.Fatalf("Failed to create assignment: %v", err)
+	}
+
+	// Create bot with test dependencies
+	mockSubmissionManager := &MockSubmissionManager{}
+	mockAIProcessor := &MockAIService{}
+
+	bot := NewBotWithDatabase(SlackConfig{
+		Token:         "test-token",
+		SigningSecret: "test-secret",
+	}, nil, []string{}, mockSubmissionManager, mockAIProcessor, testDB)
+
+	// Test direct message event (DM channel starts with "D")
+	event := SlackEvent{
+		Type:    "message",
+		User:    userID,
+		Text:    "Here's my feature story about our new dashboard",
+		Channel: "D123456", // DM channel
+	}
+
+	// Handle the event - expect error due to mock Slack API but core logic should work
+	err = bot.HandleEventCallback(context.Background(), event)
+	// We expect an error here because we're using a mock bot that can't send real Slack messages
+	// But the submission processing should still work
+	if err == nil {
+		t.Log("Unexpected success - expected Slack API error")
+	}
+
+	// Verify submission was created
+	if len(mockSubmissionManager.CreatedSubmissions) != 1 {
+		t.Errorf("Expected 1 submission to be created, got %d", len(mockSubmissionManager.CreatedSubmissions))
+	}
+
+	submission := mockSubmissionManager.CreatedSubmissions[0]
+	if submission.UserID != userID {
+		t.Errorf("Expected userID %s, got %s", userID, submission.UserID)
+	}
+
+	expectedContent := "Here's my feature story about our new dashboard"
+	if submission.Content != expectedContent {
+		t.Errorf("Expected content '%s', got '%s'", expectedContent, submission.Content)
+	}
+}
+
+func TestReplyToBotNoAssignment(t *testing.T) {
+	// Create test database
+	tempFile := "/tmp/test_reply_no_assignment.db"
+	defer os.Remove(tempFile)
+
+	testDB, err := database.NewSimple(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to create test database: %v", err)
+	}
+	defer testDB.Close()
+
+	if err := testDB.Migrate(); err != nil {
+		t.Fatalf("Failed to migrate database: %v", err)
+	}
+
+	// Create newsletter issue but NO assignment for user
+	year, week := time.Now().ISOWeek()
+	_, err = testDB.GetOrCreateWeeklyIssue(week, year)
+	if err != nil {
+		t.Fatalf("Failed to create issue: %v", err)
+	}
+
+	// Create bot with test dependencies
+	mockSubmissionManager := &MockSubmissionManager{}
+	mockAIProcessor := &MockAIService{}
+
+	bot := NewBotWithDatabase(SlackConfig{
+		Token:         "test-token",
+		SigningSecret: "test-secret",
+	}, nil, []string{}, mockSubmissionManager, mockAIProcessor, testDB)
+
+	userID := "U123456"
+
+	// Test direct message event
+	event := SlackEvent{
+		Type:    "message",
+		User:    userID,
+		Text:    "Some content",
+		Channel: "D123456", // DM channel
+	}
+
+	// Handle the event - may error due to Slack API but core logic should work
+	err = bot.HandleEventCallback(context.Background(), event)
+	// Error is expected due to mock Slack API, focus on core functionality
+
+	// Verify NO submission was created (user has no assignment)
+	if len(mockSubmissionManager.CreatedSubmissions) != 0 {
+		t.Errorf("Expected 0 submissions to be created, got %d", len(mockSubmissionManager.CreatedSubmissions))
+	}
 }
