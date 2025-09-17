@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -413,6 +414,24 @@ func (ah *AdminHandler) handleRemoveSubmission(ctx context.Context, args []strin
 			Text:         fmt.Sprintf("📰 No submissions found for user %s.", userIdentifier),
 			ResponseType: "ephemeral",
 		}, nil
+	}
+
+	// Clean up assignment records first (to allow new assignments)
+	// Get current week to find relevant assignments
+	if ah.db != nil {
+		now := time.Now()
+		currentYear, currentWeek := now.ISOWeek()
+		issue, err := ah.db.GetOrCreateWeeklyIssue(currentWeek, currentYear)
+		if err == nil {
+			// Delete assignments for this user in current week
+			// This allows them to get new assignments after removal
+			err = ah.db.DeletePersonAssignmentsByUser(userID, issue.ID)
+			if err != nil {
+				// Log error but don't fail the whole operation
+				slog.Warn("Failed to clean up assignments during remove-submission",
+					"user", userID, "issue", issue.ID, "error", err)
+			}
+		}
 	}
 
 	// Delete each submission

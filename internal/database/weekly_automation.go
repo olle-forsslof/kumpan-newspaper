@@ -238,6 +238,26 @@ func (db *DB) GetAssignmentsByUserAndIssue(userID string, issueID int) ([]Person
 	return db.scanPersonAssignments(rows)
 }
 
+// DeletePersonAssignmentsByUser deletes all assignments for a user in a specific issue
+func (db *DB) DeletePersonAssignmentsByUser(userID string, issueID int) error {
+	query := `DELETE FROM person_assignments WHERE person_id = ? AND issue_id = ?`
+
+	result, err := db.Exec(query, userID, issueID)
+	if err != nil {
+		return fmt.Errorf("failed to delete person assignments: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	// It's ok if no rows were affected - user might not have had assignments
+	_ = rowsAffected
+
+	return nil
+}
+
 // LinkSubmissionToAssignment links a submission to an existing assignment
 func (db *DB) LinkSubmissionToAssignment(assignmentID, submissionID int) error {
 	query := `

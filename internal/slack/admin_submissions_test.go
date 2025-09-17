@@ -364,6 +364,120 @@ func TestAdminHandler_RemoveSubmissionInvalidArgs(t *testing.T) {
 	}
 }
 
+// TDD: Test remove-submission cleans up assignment records to allow new assignments
+func TestAdminHandler_RemoveSubmissionCleansUpAssignments(t *testing.T) {
+	// Set up test database with weekly automation support
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("NewSimple() failed: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	submissionManager := database.NewSubmissionManager(db.DB)
+	questionSelector := database.NewQuestionSelector(db.DB)
+	adminUsers := []string{"U999999999"}
+	ctx := context.Background()
+
+	// Create admin handler with weekly automation (needed for assignment functionality)
+	adminHandler := NewAdminHandlerWithWeeklyAutomation(questionSelector, adminUsers, submissionManager, db, "fake-token")
+
+	// Step 1: Create a weekly issue for current week (simulate real scenario)
+	currentYear, currentWeek := 2025, 38
+	issue, err := db.CreateWeeklyNewsletterIssue(currentWeek, currentYear)
+	if err != nil {
+		t.Fatalf("Failed to create weekly issue: %v", err)
+	}
+
+	// Step 2: Create an assignment for the user (simulating /pp assign-question feature @olle)
+	userID := "U09EDEQSCV9"
+	assignment := database.PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: database.ContentTypeFeature,
+		QuestionID:  nil, // No specific question for this test
+	}
+
+	assignmentID, err := db.CreatePersonAssignment(assignment)
+	if err != nil {
+		t.Fatalf("Failed to create assignment: %v", err)
+	}
+
+	// Step 3: Create submissions for the user (simulating user submitting content)
+	submission1, err := submissionManager.CreateNewsSubmission(ctx, userID, "Feature story content")
+	if err != nil {
+		t.Fatalf("Failed to create submission: %v", err)
+	}
+
+	submission2, err := submissionManager.CreateNewsSubmission(ctx, userID, "Another feature story")
+	if err != nil {
+		t.Fatalf("Failed to create submission: %v", err)
+	}
+
+	// Step 4: Link submissions to assignment (simulating submission processing)
+	err = db.LinkSubmissionToAssignment(assignmentID, submission1.ID)
+	if err != nil {
+		t.Fatalf("Failed to link submission to assignment: %v", err)
+	}
+
+	// Step 5: Verify that user cannot get a new assignment (reproduces the bug)
+	_, err = db.CreatePersonAssignment(database.PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: database.ContentTypeGeneral,
+	})
+	if err == nil {
+		t.Fatal("Expected error when creating duplicate assignment, but got none")
+	}
+	if !strings.Contains(err.Error(), "already has an assignment") {
+		t.Fatalf("Expected 'already has an assignment' error, got: %v", err)
+	}
+
+	// Step 6: Use remove-submission command
+	cmd := &AdminCommand{
+		Action: "remove-submission",
+		Args:   []string{userID},
+	}
+
+	response, err := adminHandler.HandleAdminCommand(ctx, "U999999999", cmd)
+	if err != nil {
+		t.Fatalf("HandleAdminCommand failed: %v", err)
+	}
+
+	if !strings.Contains(response.Text, "removed 2") {
+		t.Errorf("Expected to remove 2 submissions, got: %s", response.Text)
+	}
+
+	// Step 7: Verify submissions are gone
+	submissions, err := submissionManager.GetSubmissionsByUser(ctx, userID)
+	if err != nil {
+		t.Fatalf("Failed to get user submissions: %v", err)
+	}
+	if len(submissions) != 0 {
+		t.Errorf("Expected 0 submissions after removal, got %d", len(submissions))
+	}
+
+	// Step 8: CRITICAL TEST - User should now be able to get a new assignment
+	// This will FAIL until we implement assignment cleanup
+	_, err = db.CreatePersonAssignment(database.PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: database.ContentTypeGeneral,
+	})
+	if err != nil {
+		t.Errorf("Expected to be able to create new assignment after remove-submission, but got error: %v", err)
+	}
+
+	// Suppress unused variable warning
+	_ = submission2
+}
+
 // TDD: Test unauthorized user cannot access submission management
 func TestAdminHandler_UnauthorizedSubmissionAccess(t *testing.T) {
 	// Set up test database
