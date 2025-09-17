@@ -98,9 +98,17 @@ func (bm *BroadcastManager) filterActiveUsers(users []slack.User) []slack.User {
 
 // sendDirectMessage sends a direct message to a specific user
 func (bm *BroadcastManager) sendDirectMessage(ctx context.Context, userID, message string) error {
-	// For direct messages, we can try sending to the userID directly as channel
-	// If this fails, we may need to implement IM channel opening
-	_, _, err := bm.client.PostMessageContext(ctx, userID,
+	// Open IM channel with the user first
+	params := &slack.OpenConversationParameters{
+		Users: []string{userID},
+	}
+	channel, _, _, err := bm.client.OpenConversationContext(ctx, params)
+	if err != nil {
+		return fmt.Errorf("failed to open IM channel with user %s: %w", userID, err)
+	}
+
+	// Send message to the IM channel
+	_, _, err = bm.client.PostMessageContext(ctx, channel.ID,
 		slack.MsgOptionText(message, false),
 		slack.MsgOptionAsUser(true),
 	)
