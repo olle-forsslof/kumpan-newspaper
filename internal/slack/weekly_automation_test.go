@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
 )
@@ -30,7 +31,7 @@ func TestWeeklyAutomationAdminCommands(t *testing.T) {
 
 	t.Run("AdminPoolStatusCommand", testAdminPoolStatusCommand(ctx, db))
 	t.Run("AdminWeekStatusCommand", testAdminWeekStatusCommand(ctx, db))
-	t.Run("AdminAssignWeekCommand", testAdminAssignWeekCommand(ctx, db))
+	t.Run("AdminAssignQuestionCommand", testAdminAssignQuestionCommand(ctx, db))
 	t.Run("AdminBroadcastCommand", testAdminBroadcastCommand(ctx, db))
 	t.Run("AdminAuthorization", testAdminAuthorization(ctx, db))
 }
@@ -143,61 +144,157 @@ func testAdminWeekStatusCommand(ctx context.Context, db *database.DB) func(t *te
 	}
 }
 
-func testAdminAssignWeekCommand(ctx context.Context, db *database.DB) func(t *testing.T) {
+func testAdminAssignQuestionCommand(ctx context.Context, db *database.DB) func(t *testing.T) {
 	return func(t *testing.T) {
 		adminUsers := []string{"U123ADMIN"}
+		mockQuestionSel := &mockQuestionSelector{}
 		handler := NewAdminHandlerWithWeeklyAutomation(
-			&mockQuestionSelector{},
+			mockQuestionSel,
 			adminUsers,
 			&mockSubmissionManager{},
 			db,
 			"fake-token",
 		)
 
-		// Test assign-week command with valid parameters
+		// Add some body_mind questions for testing
+		poolManager := database.NewBodyMindPoolManager(db)
+		testQuestions := []struct {
+			Text     string
+			Category string
+		}{
+			{"How do you manage stress at work?", "wellness"},
+			{"What's your favorite mindfulness practice?", "mental_health"},
+		}
+
+		_, err := poolManager.BulkAddQuestions(testQuestions)
+		if err != nil {
+			t.Fatalf("Failed to add test body_mind questions: %v", err)
+		}
+
+		// Test assign-question command with feature category
 		cmd := &AdminCommand{
-			Action: "assign-week",
+			Action: "assign-question",
 			Args:   []string{"feature", "@U789USER"},
 		}
 
 		response, err := handler.HandleAdminCommand(ctx, "U123ADMIN", cmd)
 		if err != nil {
-			t.Fatalf("Failed to handle assign-week command: %v", err)
+			t.Fatalf("Failed to handle assign-question command: %v", err)
 		}
 
-		// Response should be a placeholder since we haven't fully implemented it
-		if !strings.Contains(response.Text, "Week assignment not fully implemented") {
-			t.Error("Expected placeholder response for assign-week")
+		// Should have successful assignment response
+		if !strings.Contains(response.Text, "Successfully assigned") {
+			t.Errorf("Expected successful assignment, got: %s", response.Text)
+		}
+
+		// Should contain question and user info
+		if !strings.Contains(response.Text, "feature") || !strings.Contains(response.Text, "U789USER") {
+			t.Errorf("Response should contain category and user info: %s", response.Text)
+		}
+
+		// Verify question was selected
+		if !mockQuestionSel.selectNextQuestionCalled {
+			t.Error("Expected SelectNextQuestion to be called")
+		}
+
+		if mockQuestionSel.lastCategory != "feature" {
+			t.Errorf("Expected category 'feature', got '%s'", mockQuestionSel.lastCategory)
+		}
+
+		// Verify question was marked as used
+		if !mockQuestionSel.markQuestionUsedCalled {
+			t.Error("Expected MarkQuestionUsed to be called")
+		}
+
+		// Verify assignment was created in database
+		// We'll need the current week issue to check assignments
+		now := time.Now()
+		currentYear, currentWeek := now.ISOWeek()
+		issue, err := db.GetOrCreateWeeklyIssue(currentWeek, currentYear)
+		if err != nil {
+			t.Fatalf("Failed to get current week issue: %v", err)
+		}
+
+		assignments, err := db.GetPersonAssignmentsByIssue(issue.ID)
+		if err != nil {
+			t.Fatalf("Failed to get assignments: %v", err)
+		}
+
+		if len(assignments) == 0 {
+			t.Error("Expected at least one assignment to be created")
+		}
+
+		assignment := assignments[0]
+		if assignment.PersonID != "U789USER" {
+			t.Errorf("Expected assignment to U789USER, got %s", assignment.PersonID)
+		}
+
+		if assignment.ContentType != database.ContentTypeFeature {
+			t.Errorf("Expected feature content type, got %s", assignment.ContentType)
+		}
+
+		if assignment.QuestionID == nil {
+			t.Error("Expected assignment to have a question ID")
+		}
+
+		// Test body_mind category support
+		bodyMindCmd := &AdminCommand{
+			Action: "assign-question",
+			Args:   []string{"body_mind", "@U456WELLNESS"},
+		}
+
+		bodyMindResponse, err := handler.HandleAdminCommand(ctx, "U123ADMIN", bodyMindCmd)
+		if err != nil {
+			t.Fatalf("Failed to handle body_mind assign-question command: %v", err)
+		}
+
+		if !strings.Contains(bodyMindResponse.Text, "Successfully assigned") {
+			t.Errorf("Expected successful body_mind assignment, got: %s", bodyMindResponse.Text)
 		}
 
 		// Test invalid content type
 		invalidCmd := &AdminCommand{
-			Action: "assign-week",
+			Action: "assign-question",
 			Args:   []string{"invalid_type", "@U789USER"},
 		}
 
 		invalidResponse, err := handler.HandleAdminCommand(ctx, "U123ADMIN", invalidCmd)
 		if err != nil {
-			t.Fatalf("Failed to handle invalid assign-week command: %v", err)
+			t.Fatalf("Failed to handle invalid assign-question command: %v", err)
 		}
 
-		if !strings.Contains(invalidResponse.Text, "Content type must be 'feature' or 'general'") {
+		if !strings.Contains(invalidResponse.Text, "Content type must be") {
 			t.Error("Expected validation error for invalid content type")
 		}
 
 		// Test insufficient arguments
 		shortCmd := &AdminCommand{
-			Action: "assign-week",
+			Action: "assign-question",
 			Args:   []string{"feature"},
 		}
 
 		shortResponse, err := handler.HandleAdminCommand(ctx, "U123ADMIN", shortCmd)
 		if err != nil {
-			t.Fatalf("Failed to handle short assign-week command: %v", err)
+			t.Fatalf("Failed to handle short assign-question command: %v", err)
 		}
 
-		if !strings.Contains(shortResponse.Text, "Usage: admin assign-week") {
+		if !strings.Contains(shortResponse.Text, "Usage: admin assign-question") {
 			t.Error("Expected usage message for insufficient arguments")
+		}
+
+		// Test multiple users
+		multiCmd := &AdminCommand{
+			Action: "assign-question",
+			Args:   []string{"general", "@U111USER", "@U222USER"},
+		}
+
+		multiResponse, err := handler.HandleAdminCommand(ctx, "U123ADMIN", multiCmd)
+		if err != nil {
+			t.Fatalf("Failed to handle multi-user assign-question command: %v", err)
+		}
+
+		if !strings.Contains(multiResponse.Text, "Successfully assigned") {
+			t.Error("Expected successful multi-user assignment")
 		}
 	}
 }
@@ -361,17 +458,26 @@ func testBroadcastResultHandling(t *testing.T) {
 
 // Mock implementations for testing
 
-type mockQuestionSelector struct{}
+type mockQuestionSelector struct {
+	selectNextQuestionCalled bool
+	markQuestionUsedCalled   bool
+	lastCategory             string
+	lastQuestionID           int
+}
 
 func (m *mockQuestionSelector) SelectNextQuestion(ctx context.Context, category string) (*database.Question, error) {
+	m.selectNextQuestionCalled = true
+	m.lastCategory = category
 	return &database.Question{
 		ID:       1,
-		Text:     "Mock question",
+		Text:     "Mock question for " + category,
 		Category: category,
 	}, nil
 }
 
 func (m *mockQuestionSelector) MarkQuestionUsed(ctx context.Context, questionID int) error {
+	m.markQuestionUsedCalled = true
+	m.lastQuestionID = questionID
 	return nil
 }
 
@@ -418,5 +524,28 @@ func (m *mockSubmissionManager) GetAllSubmissions(ctx context.Context) ([]databa
 	return []database.Submission{
 		{ID: 1, UserID: "U123", Content: "Mock submission 1"},
 		{ID: 2, UserID: "U456", Content: "Mock submission 2"},
+	}, nil
+}
+
+type mockBroadcastManager struct {
+	sendDirectMessageCalled bool
+	lastUserID              string
+	lastMessage             string
+	lastAssignmentIssueID   int
+}
+
+func (m *mockBroadcastManager) sendDirectMessage(ctx context.Context, userID, message string) error {
+	m.sendDirectMessageCalled = true
+	m.lastUserID = userID
+	m.lastMessage = message
+	return nil
+}
+
+func (m *mockBroadcastManager) BroadcastBodyMindRequest(ctx context.Context) (*BroadcastResult, error) {
+	return &BroadcastResult{
+		TotalUsers:      1,
+		SuccessfulSends: 1,
+		FailedSends:     0,
+		Errors:          []string{},
 	}, nil
 }

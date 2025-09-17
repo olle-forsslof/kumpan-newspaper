@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
 )
@@ -140,8 +141,8 @@ func (ah *AdminHandler) HandleAdminCommand(ctx context.Context, userID string, c
 		return ah.handleListSubmissions(ctx, cmd.Args)
 
 	// Weekly automation commands
-	case "assign-week":
-		return ah.handleAssignWeek(ctx, cmd.Args)
+	case "assign-question":
+		return ah.handleAssignQuestion(ctx, cmd.Args)
 	case "week-status":
 		return ah.handleWeekStatus(ctx, cmd.Args)
 	case "pool-status":
@@ -209,7 +210,7 @@ func (ah *AdminHandler) handleHelp() (*SlashCommandResponse, error) {
      • admin list-submissions [user_id] - Show submissions by specific user
 
 **Weekly Automation:**
-     • admin assign-week [feature|general] [@user1 @user2] - Manual assignment override
+     • admin assign-question [feature|general|body_mind] [@user1 @user2] - Send questions to users
      • admin week-status - Current week dashboard with assignments and status
      • admin pool-status - Anonymous body/mind question pool levels and activity
      • admin broadcast-bodymind - Send wellness question request to all users
@@ -221,7 +222,7 @@ func (ah *AdminHandler) handleHelp() (*SlashCommandResponse, error) {
      > admin add-question "What did you accomplish this week?" work
      > admin list-questions fun
      > admin list-submissions
-     > admin assign-week feature @john.doe
+     > admin assign-question feature @john.doe
      > admin week-status
      > admin pool-status`
 
@@ -370,8 +371,8 @@ func (ah *AdminHandler) handleListSubmissions(ctx context.Context, args []string
 
 // Weekly automation command handlers
 
-// handleAssignWeek handles manual assignment overrides for current week
-func (ah *AdminHandler) handleAssignWeek(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+// handleAssignQuestion handles sending questions to users for current week assignments
+func (ah *AdminHandler) handleAssignQuestion(ctx context.Context, args []string) (*SlashCommandResponse, error) {
 	if ah.db == nil {
 		return &SlashCommandResponse{
 			Text:         "❌ Weekly automation is not available.",
@@ -381,7 +382,7 @@ func (ah *AdminHandler) handleAssignWeek(ctx context.Context, args []string) (*S
 
 	if len(args) < 2 {
 		return &SlashCommandResponse{
-			Text:         "Usage: admin assign-week [feature|general] [@user1 @user2 ...]\nExample: admin assign-week feature @john.doe",
+			Text:         "Usage: admin assign-question [feature|general|body_mind] [@user1 @user2 ...]\nExample: admin assign-question feature @john.doe",
 			ResponseType: "ephemeral",
 		}, nil
 	}
@@ -390,24 +391,158 @@ func (ah *AdminHandler) handleAssignWeek(ctx context.Context, args []string) (*S
 	users := args[1:]
 
 	// Validate content type
-	validContentTypes := map[string]bool{
-		"feature": true,
-		"general": true,
+	validContentTypes := map[string]database.ContentType{
+		"feature":   database.ContentTypeFeature,
+		"general":   database.ContentTypeGeneral,
+		"body_mind": database.ContentTypeBodyMind,
 	}
 
-	if !validContentTypes[contentType] {
+	dbContentType, valid := validContentTypes[contentType]
+	if !valid {
 		return &SlashCommandResponse{
-			Text:         "❌ Content type must be 'feature' or 'general'",
+			Text:         "❌ Content type must be 'feature', 'general', or 'body_mind'",
 			ResponseType: "ephemeral",
 		}, nil
 	}
 
-	// TODO: Implement the actual assignment logic
+	// Get current week and create issue if needed
+	now := time.Now()
+	currentYear, currentWeek := now.ISOWeek()
+	issue, err := ah.db.GetOrCreateWeeklyIssue(currentWeek, currentYear)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to get weekly issue: %v", err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	var successfulAssignments []string
+	var errors []string
+
+	for _, userArg := range users {
+		// Clean user ID (remove @ symbol if present)
+		userID := strings.TrimPrefix(userArg, "@")
+
+		// Select question based on content type
+		var question *database.Question
+		var questionText string
+
+		if contentType == "body_mind" {
+			// For body_mind, use anonymous question pool
+			if ah.poolManager == nil {
+				errors = append(errors, fmt.Sprintf("User %s: Body/mind pool not available", userID))
+				continue
+			}
+			bodyMindQuestions, err := ah.db.GetActiveBodyMindQuestions()
+			if err != nil || len(bodyMindQuestions) == 0 {
+				errors = append(errors, fmt.Sprintf("User %s: No body/mind questions available", userID))
+				continue
+			}
+			// Use first available question (could be improved with better selection)
+			bodyMindQ := bodyMindQuestions[0]
+			questionText = bodyMindQ.QuestionText
+			// Mark as used
+			if err := ah.db.MarkBodyMindQuestionUsed(bodyMindQ.ID); err != nil {
+				errors = append(errors, fmt.Sprintf("User %s: Failed to mark question as used", userID))
+				continue
+			}
+		} else {
+			// For feature/general, use regular question rotation
+			question, err = ah.questionSelector.SelectNextQuestion(ctx, contentType)
+			if err != nil {
+				errors = append(errors, fmt.Sprintf("User %s: Failed to select question: %v", userID, err))
+				continue
+			}
+			questionText = question.Text
+
+			// Mark question as used
+			if err := ah.questionSelector.MarkQuestionUsed(ctx, question.ID); err != nil {
+				errors = append(errors, fmt.Sprintf("User %s: Failed to mark question as used", userID))
+				continue
+			}
+		}
+
+		// Create assignment record
+		assignment := database.PersonAssignment{
+			IssueID:     issue.ID,
+			PersonID:    userID,
+			ContentType: dbContentType,
+			AssignedAt:  now,
+		}
+
+		if question != nil {
+			assignment.QuestionID = &question.ID
+		}
+
+		_, err = ah.db.CreatePersonAssignment(assignment)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("User %s: Failed to create assignment: %v", userID, err))
+			continue
+		}
+
+		// Send direct message to user with question
+		message := ah.createQuestionMessage(questionText, contentType, currentWeek, currentYear)
+		var messageError error
+		if ah.broadcastManager != nil {
+			messageError = ah.sendDirectMessage(ctx, userID, message)
+		}
+
+		// Always mark as successful assignment if we got this far (database operations succeeded)
+		successfulAssignments = append(successfulAssignments, userID)
+
+		// But note message sending errors separately
+		if messageError != nil {
+			errors = append(errors, fmt.Sprintf("User %s: Assignment created but message failed: %v", userID, messageError))
+		}
+	}
+
+	// Format response
+	var responseText strings.Builder
+
+	if len(successfulAssignments) > 0 {
+		responseText.WriteString("✅ Successfully assigned questions:\n")
+		for _, userID := range successfulAssignments {
+			responseText.WriteString(fmt.Sprintf("• %s content → %s\n", contentType, userID))
+		}
+	}
+
+	if len(errors) > 0 {
+		if len(successfulAssignments) > 0 {
+			responseText.WriteString("\n")
+		}
+		responseText.WriteString("❌ Errors:\n")
+		for _, errMsg := range errors {
+			responseText.WriteString(fmt.Sprintf("• %s\n", errMsg))
+		}
+	}
+
+	if len(successfulAssignments) == 0 && len(errors) == 0 {
+		responseText.WriteString("❌ No assignments were processed.")
+	}
+
 	return &SlashCommandResponse{
-		Text: fmt.Sprintf("🚧 Week assignment not fully implemented yet.\n"+
-			"Would assign %s content to: %s", contentType, strings.Join(users, ", ")),
+		Text:         responseText.String(),
 		ResponseType: "ephemeral",
 	}, nil
+}
+
+// createQuestionMessage creates the DM message with the question
+func (ah *AdminHandler) createQuestionMessage(questionText, contentType string, week, year int) string {
+	return fmt.Sprintf("📝 *Newsletter Assignment - Week %d, %d*\n\n"+
+		"You've been assigned to write %s content for this week's newsletter.\n\n"+
+		"*Your question:*\n> %s\n\n"+
+		"Please submit your response using: `/pp submit \"your content here\"`\n\n"+
+		"Need help? Contact an admin or check `/pp help` for more options.",
+		week, year, contentType, questionText)
+}
+
+// sendDirectMessage sends a direct message to a user (wrapper for broadcast manager)
+func (ah *AdminHandler) sendDirectMessage(ctx context.Context, userID, message string) error {
+	if ah.broadcastManager == nil {
+		return fmt.Errorf("broadcast manager not available")
+	}
+	// Use the broadcast manager's sendDirectMessage method (it's private but we can call it from same package)
+	return ah.broadcastManager.sendDirectMessage(ctx, userID, message)
 }
 
 // handleWeekStatus shows current week dashboard with assignments and submission status
