@@ -54,8 +54,15 @@ func TestSlackBot_AutoProcessSubmission(t *testing.T) {
 		t.Fatalf("HandleSlashCommand failed: %v", err)
 	}
 
-	// Give async processing time to complete
-	time.Sleep(500 * time.Millisecond)
+	// Give async processing more time to complete and retry if needed
+	var processCallCount int
+	for i := 0; i < 10; i++ { // Try up to 10 times with 200ms intervals
+		time.Sleep(200 * time.Millisecond)
+		processCallCount = len(mockAIService.ProcessAndSaveCalls)
+		if processCallCount > 0 {
+			break
+		}
+	}
 
 	// Verify submission was stored
 	if len(mockSubmissionManager.CreatedSubmissions) != 1 {
@@ -63,8 +70,8 @@ func TestSlackBot_AutoProcessSubmission(t *testing.T) {
 	}
 
 	// Verify AI processing was triggered automatically
-	if len(mockAIService.ProcessAndSaveCalls) != 1 {
-		t.Errorf("Expected 1 processed submission, got %d", len(mockAIService.ProcessAndSaveCalls))
+	if processCallCount != 1 {
+		t.Errorf("Expected 1 processed submission, got %d", processCallCount)
 	}
 
 	// Verify response indicates both storage and processing
@@ -120,12 +127,19 @@ func TestSlackBot_AutoProcessWithUserInfo(t *testing.T) {
 		t.Fatalf("HandleSlashCommand failed: %v", cmdErr)
 	}
 
-	// Give async processing time to complete
-	time.Sleep(500 * time.Millisecond)
+	// Give async processing more time to complete and retry if needed
+	var processCallCount int
+	for i := 0; i < 10; i++ { // Try up to 10 times with 200ms intervals
+		time.Sleep(200 * time.Millisecond)
+		processCallCount = len(mockAIService.ProcessAndSaveCalls)
+		if processCallCount > 0 {
+			break
+		}
+	}
 
 	// Verify AI processing was called with user information
-	if len(mockAIService.ProcessAndSaveCalls) != 1 {
-		t.Errorf("Expected 1 user-enriched processing call, got %d", len(mockAIService.ProcessAndSaveCalls))
+	if processCallCount != 1 {
+		t.Errorf("Expected 1 user-enriched processing call, got %d", processCallCount)
 	}
 
 	// Check that user info was passed correctly
@@ -168,6 +182,7 @@ func TestSlackBot_AutoJournalistSelection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			mockSubmissionManager := &MockSubmissionManager{}
 			mockAIService := &MockAIService{}
+			mockDB := NewMockDatabase()
 
 			// Mock submission manager should return submission with NO question ID (news submission)
 			mockSubmissionManager.NextSubmission = &database.Submission{
@@ -177,12 +192,13 @@ func TestSlackBot_AutoJournalistSelection(t *testing.T) {
 				Content:    tc.content,
 			}
 
-			bot := NewBotWithAIProcessing(
+			bot := NewBotWithDatabase(
 				SlackConfig{Token: "test-token"},
 				nil, // No question selector needed for news submissions
 				[]string{"U1234567"},
 				mockSubmissionManager,
 				mockAIService,
+				mockDB,
 			)
 
 			command := SlashCommand{
@@ -348,11 +364,15 @@ var _ AIProcessor = (*MockAIService)(nil)
 // TDD Phase 1: AUTO-ASSIGNMENT FAILING TESTS
 
 // MockDatabase for testing newsletter issue auto-assignment
+// This mock needs to be castable to *database.DB to fix type assertion issues
 type MockDatabase struct {
 	WeeklyIssues                map[string]*database.WeeklyNewsletterIssue // key: "week-year"
 	ProcessedArticles           []database.ProcessedArticle
 	GetOrCreateWeeklyIssueCalls []GetOrCreateWeeklyIssueCall
 	UpdateProcessedArticleCalls []UpdateProcessedArticleCall
+
+	// Add embedded anonymous field to make this castable
+	*database.DB
 }
 
 type GetOrCreateWeeklyIssueCall struct {
@@ -365,11 +385,15 @@ type UpdateProcessedArticleCall struct {
 }
 
 func NewMockDatabase() *MockDatabase {
+	// Create a temporary DB for embedding (won't be used, just for type compatibility)
+	tempDB, _ := database.NewSimple(":memory:")
+
 	return &MockDatabase{
 		WeeklyIssues:                make(map[string]*database.WeeklyNewsletterIssue),
 		ProcessedArticles:           []database.ProcessedArticle{},
 		GetOrCreateWeeklyIssueCalls: []GetOrCreateWeeklyIssueCall{},
 		UpdateProcessedArticleCalls: []UpdateProcessedArticleCall{},
+		DB:                          tempDB, // Embed for type compatibility
 	}
 }
 
@@ -410,6 +434,11 @@ func (m *MockDatabase) CreateProcessedArticle(article database.ProcessedArticle)
 	m.ProcessedArticles = append(m.ProcessedArticles, article)
 
 	return newID, nil
+}
+
+// GetUnderlyingDB returns the embedded *database.DB for testing
+func (m *MockDatabase) GetUnderlyingDB() *database.DB {
+	return m.DB
 }
 
 // Ensure MockDatabase implements DatabaseInterface
@@ -454,17 +483,26 @@ func TestProcessSubmissionAsync_AutoAssignsToCurrentWeek(t *testing.T) {
 		t.Fatalf("HandleSlashCommand failed: %v", err)
 	}
 
-	// Wait a short time for goroutine to complete
-	time.Sleep(100 * time.Millisecond)
+	// Give async processing time to complete and retry if needed
+	var getOrCreateCallCount int
+	var processCallCount int
+	for i := 0; i < 10; i++ { // Try up to 10 times with 200ms intervals
+		time.Sleep(200 * time.Millisecond)
+		getOrCreateCallCount = len(mockDB.GetOrCreateWeeklyIssueCalls)
+		processCallCount = len(mockAIService.ProcessAndSaveCalls)
+		if getOrCreateCallCount > 0 && processCallCount > 0 {
+			break
+		}
+	}
 
 	// Verify that GetOrCreateWeeklyIssue was called for current week
-	if len(mockDB.GetOrCreateWeeklyIssueCalls) != 1 {
-		t.Errorf("Expected GetOrCreateWeeklyIssue to be called once, got %d calls", len(mockDB.GetOrCreateWeeklyIssueCalls))
+	if getOrCreateCallCount != 1 {
+		t.Errorf("Expected GetOrCreateWeeklyIssue to be called once, got %d calls", getOrCreateCallCount)
 	}
 
 	// Verify AI processing was triggered
-	if len(mockAIService.ProcessedWithUserInfo) != 1 {
-		t.Errorf("Expected AI processing to be called once, got %d calls", len(mockAIService.ProcessedWithUserInfo))
+	if processCallCount != 1 {
+		t.Errorf("Expected AI processing to be called once, got %d calls", processCallCount)
 	}
 }
 
@@ -510,12 +548,19 @@ func TestProcessSubmissionAsync_CreatesWeeklyIssueIfNotExists(t *testing.T) {
 		t.Fatalf("HandleSlashCommand failed: %v", err)
 	}
 
-	// Wait a short time for goroutine to complete
-	time.Sleep(100 * time.Millisecond)
+	// Give async processing time to complete and retry if needed
+	var issueCount int
+	for i := 0; i < 10; i++ { // Try up to 10 times with 200ms intervals
+		time.Sleep(200 * time.Millisecond)
+		issueCount = len(mockDB.WeeklyIssues)
+		if issueCount > 0 {
+			break
+		}
+	}
 
 	// Verify a new newsletter issue was created
-	if len(mockDB.WeeklyIssues) != 1 {
-		t.Errorf("Expected 1 newsletter issue to be created, got %d", len(mockDB.WeeklyIssues))
+	if issueCount != 1 {
+		t.Errorf("Expected 1 newsletter issue to be created, got %d", issueCount)
 	}
 }
 

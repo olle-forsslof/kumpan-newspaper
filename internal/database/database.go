@@ -69,6 +69,11 @@ func (db *DB) Close() error {
 	return db.DB.Close()
 }
 
+// GetUnderlyingDB returns the *database.DB itself
+func (db *DB) GetUnderlyingDB() *DB {
+	return db
+}
+
 // Migrate runs database migrations
 func (db *DB) Migrate() error {
 	// Create schema_migrations table if it doesn't exist

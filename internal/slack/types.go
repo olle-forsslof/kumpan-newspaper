@@ -76,4 +76,6 @@ type AIProcessor = ai.EnhancedAIService
 type DatabaseInterface interface {
 	GetOrCreateWeeklyIssue(weekNumber, year int) (*database.WeeklyNewsletterIssue, error)
 	CreateProcessedArticle(article database.ProcessedArticle) (int, error)
+	// GetUnderlyingDB returns the underlying *database.DB if available, nil otherwise
+	GetUnderlyingDB() *database.DB
 }
