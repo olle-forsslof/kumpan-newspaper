@@ -614,3 +614,68 @@ func TestGetActiveAssignmentsByUser(t *testing.T) {
 		t.Errorf("Expected assignment for user %s, got %s", userID, assignments[0].PersonID)
 	}
 }
+
+func TestScanPersonAssignment(t *testing.T) {
+	// Create a temporary database for testing
+	tempFile := "/tmp/test_scan_assignment.db"
+	defer os.Remove(tempFile)
+
+	db, err := NewSimple(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	// Run migrations to set up the schema
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+
+	// Create test data
+	year, week := time.Now().ISOWeek()
+	issue, err := db.GetOrCreateWeeklyIssue(week, year)
+	if err != nil {
+		t.Fatalf("Failed to create issue: %v", err)
+	}
+
+	userID := "U123456"
+	assignment := PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: ContentTypeFeature,
+		AssignedAt:  time.Now(),
+	}
+
+	assignmentID, err := db.CreatePersonAssignment(assignment)
+	if err != nil {
+		t.Fatalf("Failed to create assignment: %v", err)
+	}
+
+	// Test the helper function (this will fail until we implement it)
+	rows, err := db.Query(`
+		SELECT id, issue_id, person_id, content_type, question_id, submission_id, assigned_at, created_at
+		FROM person_assignments 
+		WHERE id = ?`, assignmentID)
+	if err != nil {
+		t.Fatalf("Failed to query assignment: %v", err)
+	}
+	defer rows.Close()
+
+	// This should fail because scanPersonAssignment doesn't exist yet
+	assignments, err := db.scanPersonAssignments(rows)
+	if err != nil {
+		t.Fatalf("Failed to scan assignments: %v", err)
+	}
+
+	if len(assignments) != 1 {
+		t.Errorf("Expected 1 assignment, got %d", len(assignments))
+	}
+
+	if assignments[0].ID != assignmentID {
+		t.Errorf("Expected assignment ID %d, got %d", assignmentID, assignments[0].ID)
+	}
+
+	if assignments[0].ContentType != ContentTypeFeature {
+		t.Errorf("Expected feature assignment, got %s", assignments[0].ContentType)
+	}
+}

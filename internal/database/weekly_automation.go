@@ -175,44 +175,7 @@ func (db *DB) GetPersonAssignmentsByIssue(issueID int) ([]PersonAssignment, erro
 	}
 	defer rows.Close()
 
-	var assignments []PersonAssignment
-	for rows.Next() {
-		var assignment PersonAssignment
-		var questionID sql.NullInt64
-		var submissionID sql.NullInt64
-
-		err := rows.Scan(
-			&assignment.ID,
-			&assignment.IssueID,
-			&assignment.PersonID,
-			&assignment.ContentType,
-			&questionID,
-			&submissionID,
-			&assignment.AssignedAt,
-			&assignment.CreatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan person assignment: %w", err)
-		}
-
-		// Handle nullable fields
-		if questionID.Valid {
-			qid := int(questionID.Int64)
-			assignment.QuestionID = &qid
-		}
-		if submissionID.Valid {
-			sid := int(submissionID.Int64)
-			assignment.SubmissionID = &sid
-		}
-
-		assignments = append(assignments, assignment)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over assignments: %w", err)
-	}
-
-	return assignments, nil
+	return db.scanPersonAssignments(rows)
 }
 
 // GetActiveAssignmentByUser retrieves a person's active assignment for current week by content type
@@ -232,21 +195,8 @@ func (db *DB) GetActiveAssignmentByUser(userID string, contentType ContentType) 
 		WHERE issue_id = ? AND person_id = ? AND content_type = ?
 		LIMIT 1`
 
-	var assignment PersonAssignment
-	var questionID sql.NullInt64
-	var submissionID sql.NullInt64
-
-	err = db.QueryRow(query, issue.ID, userID, contentType).Scan(
-		&assignment.ID,
-		&assignment.IssueID,
-		&assignment.PersonID,
-		&assignment.ContentType,
-		&questionID,
-		&submissionID,
-		&assignment.AssignedAt,
-		&assignment.CreatedAt,
-	)
-
+	row := db.QueryRow(query, issue.ID, userID, contentType)
+	assignment, err := db.scanSinglePersonAssignment(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("no active assignment found for user %s with content type %s", userID, contentType)
@@ -254,15 +204,7 @@ func (db *DB) GetActiveAssignmentByUser(userID string, contentType ContentType) 
 		return nil, fmt.Errorf("failed to get active assignment: %w", err)
 	}
 
-	// Handle nullable fields
-	if questionID.Valid {
-		assignment.QuestionID = &[]int{int(questionID.Int64)}[0]
-	}
-	if submissionID.Valid {
-		assignment.SubmissionID = &[]int{int(submissionID.Int64)}[0]
-	}
-
-	return &assignment, nil
+	return assignment, nil
 }
 
 // GetActiveAssignmentsByUser retrieves all assignments for a user in the current week
@@ -276,54 +218,7 @@ func (db *DB) GetActiveAssignmentsByUser(userID string) ([]PersonAssignment, err
 		return nil, fmt.Errorf("failed to get current week issue: %w", err)
 	}
 
-	query := `
-		SELECT id, issue_id, person_id, content_type, question_id, submission_id, assigned_at, created_at
-		FROM person_assignments 
-		WHERE issue_id = ? AND person_id = ?
-		ORDER BY created_at ASC`
-
-	rows, err := db.Query(query, issue.ID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query user assignments: %w", err)
-	}
-	defer rows.Close()
-
-	var assignments []PersonAssignment
-	for rows.Next() {
-		var assignment PersonAssignment
-		var questionID sql.NullInt64
-		var submissionID sql.NullInt64
-
-		err := rows.Scan(
-			&assignment.ID,
-			&assignment.IssueID,
-			&assignment.PersonID,
-			&assignment.ContentType,
-			&questionID,
-			&submissionID,
-			&assignment.AssignedAt,
-			&assignment.CreatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan assignment: %w", err)
-		}
-
-		// Handle nullable fields
-		if questionID.Valid {
-			assignment.QuestionID = &[]int{int(questionID.Int64)}[0]
-		}
-		if submissionID.Valid {
-			assignment.SubmissionID = &[]int{int(submissionID.Int64)}[0]
-		}
-
-		assignments = append(assignments, assignment)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error reading assignment rows: %w", err)
-	}
-
-	return assignments, nil
+	return db.GetAssignmentsByUserAndIssue(userID, issue.ID)
 }
 
 // GetAssignmentsByUserAndIssue retrieves all assignments for a user in a specific issue
@@ -340,42 +235,7 @@ func (db *DB) GetAssignmentsByUserAndIssue(userID string, issueID int) ([]Person
 	}
 	defer rows.Close()
 
-	var assignments []PersonAssignment
-	for rows.Next() {
-		var assignment PersonAssignment
-		var questionID sql.NullInt64
-		var submissionID sql.NullInt64
-
-		err := rows.Scan(
-			&assignment.ID,
-			&assignment.IssueID,
-			&assignment.PersonID,
-			&assignment.ContentType,
-			&questionID,
-			&submissionID,
-			&assignment.AssignedAt,
-			&assignment.CreatedAt,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan assignment: %w", err)
-		}
-
-		// Handle nullable fields
-		if questionID.Valid {
-			assignment.QuestionID = &[]int{int(questionID.Int64)}[0]
-		}
-		if submissionID.Valid {
-			assignment.SubmissionID = &[]int{int(submissionID.Int64)}[0]
-		}
-
-		assignments = append(assignments, assignment)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, fmt.Errorf("error reading assignment rows: %w", err)
-	}
-
-	return assignments, nil
+	return db.scanPersonAssignments(rows)
 }
 
 // LinkSubmissionToAssignment links a submission to an existing assignment
@@ -409,21 +269,8 @@ func (db *DB) GetPersonAssignmentByID(assignmentID int) (*PersonAssignment, erro
 		FROM person_assignments 
 		WHERE id = ?`
 
-	var assignment PersonAssignment
-	var questionID sql.NullInt64
-	var submissionID sql.NullInt64
-
-	err := db.QueryRow(query, assignmentID).Scan(
-		&assignment.ID,
-		&assignment.IssueID,
-		&assignment.PersonID,
-		&assignment.ContentType,
-		&questionID,
-		&submissionID,
-		&assignment.AssignedAt,
-		&assignment.CreatedAt,
-	)
-
+	row := db.QueryRow(query, assignmentID)
+	assignment, err := db.scanSinglePersonAssignment(row)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("assignment with ID %d not found", assignmentID)
@@ -431,15 +278,7 @@ func (db *DB) GetPersonAssignmentByID(assignmentID int) (*PersonAssignment, erro
 		return nil, fmt.Errorf("failed to get assignment: %w", err)
 	}
 
-	// Handle nullable fields
-	if questionID.Valid {
-		assignment.QuestionID = &[]int{int(questionID.Int64)}[0]
-	}
-	if submissionID.Valid {
-		assignment.SubmissionID = &[]int{int(submissionID.Int64)}[0]
-	}
-
-	return &assignment, nil
+	return assignment, nil
 }
 
 // CreateBodyMindQuestion creates a new anonymous body/mind question for the pool
@@ -480,13 +319,7 @@ func (db *DB) GetBodyMindQuestionsByCategory(category string) ([]BodyMindQuestio
 		WHERE status = 'active' AND category = ?
 		ORDER BY created_at ASC`
 
-	rows, err := db.Query(query, category)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query body/mind questions by category: %w", err)
-	}
-	defer rows.Close()
-
-	return db.scanBodyMindQuestions(rows)
+	return db.queryBodyMindQuestions(query, category)
 }
 
 // MarkBodyMindQuestionUsed marks a question as used with timestamp
@@ -579,6 +412,75 @@ func (db *DB) GetPersonRotationHistory(personID string, contentType ContentType,
 }
 
 // Helper functions
+
+// scanPersonAssignments scans rows into PersonAssignment structs
+func (db *DB) scanPersonAssignments(rows *sql.Rows) ([]PersonAssignment, error) {
+	var assignments []PersonAssignment
+	for rows.Next() {
+		assignment, err := db.scanSinglePersonAssignment(rows)
+		if err != nil {
+			return nil, err
+		}
+		assignments = append(assignments, *assignment)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over assignments: %w", err)
+	}
+
+	return assignments, nil
+}
+
+// scanSinglePersonAssignment scans a single row into a PersonAssignment struct
+func (db *DB) scanSinglePersonAssignment(scanner interface{}) (*PersonAssignment, error) {
+	var assignment PersonAssignment
+	var questionID sql.NullInt64
+	var submissionID sql.NullInt64
+
+	var err error
+	switch s := scanner.(type) {
+	case *sql.Rows:
+		err = s.Scan(
+			&assignment.ID,
+			&assignment.IssueID,
+			&assignment.PersonID,
+			&assignment.ContentType,
+			&questionID,
+			&submissionID,
+			&assignment.AssignedAt,
+			&assignment.CreatedAt,
+		)
+	case *sql.Row:
+		err = s.Scan(
+			&assignment.ID,
+			&assignment.IssueID,
+			&assignment.PersonID,
+			&assignment.ContentType,
+			&questionID,
+			&submissionID,
+			&assignment.AssignedAt,
+			&assignment.CreatedAt,
+		)
+	default:
+		return nil, fmt.Errorf("unsupported scanner type")
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to scan person assignment: %w", err)
+	}
+
+	// Handle nullable fields with clean pointer creation
+	if questionID.Valid {
+		qid := int(questionID.Int64)
+		assignment.QuestionID = &qid
+	}
+	if submissionID.Valid {
+		sid := int(submissionID.Int64)
+		assignment.SubmissionID = &sid
+	}
+
+	return &assignment, nil
+}
 
 // queryBodyMindQuestions executes a query and returns the results
 func (db *DB) queryBodyMindQuestions(query string, args ...interface{}) ([]BodyMindQuestion, error) {

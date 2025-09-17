@@ -507,7 +507,7 @@ Implementation completed with:
 - Integration with existing AI processing pipeline for automated article generation
 ```
 
-### Prompt 12: Newsletter Assignment UX Improvements - [🔄] IN PROGRESS
+### Prompt 12: Newsletter Assignment UX Improvements - [✅] COMPLETED
 
 ```
 Fix critical UX issues with newsletter assignment workflow and submission commands.
@@ -550,15 +550,72 @@ Technical Requirements:
 - Integration with existing unified submission system
 - Comprehensive test coverage for new functionality
 
-Expected outcome: Seamless UX where users can either use slash commands OR simply reply to assignment messages, 
+Expected outcome: ✅ ACHIEVED - Seamless UX where users can either use slash commands OR simply reply to assignment messages, 
 with clear instructions and no confusion about categories or duplicate assignments
+
+Implementation completed with:
+- GetActiveAssignmentsByUser function refactored to eliminate duplicate code
+- Assignment validation preventing multiple assignments per user per week  
+- Category-based instruction messages matching actual command requirements
+- Reply-to-bot functionality for seamless user experience
+- Updated help text and documentation for consistency
+- Full TDD implementation with comprehensive test coverage
+```
+
+### Prompt 13: Database Function Refactoring (TDD) - [🔄] IN PROGRESS
+
+```
+Refactor database functions to eliminate code duplication and improve maintainability using TDD.
+
+IDENTIFIED ISSUES:
+- Massive code duplication in PersonAssignment scanning logic (50+ lines repeated 3 times)
+- GetActiveAssignmentsByUser was redundant with GetAssignmentsByUserAndIssue
+- GetBodyMindQuestionsByCategory bypasses existing helper functions
+- Inconsistent pointer creation patterns for nullable fields
+
+DUPLICATE CODE ANALYSIS:
+- GetPersonAssignmentsByIssue, GetAssignmentsByUserAndIssue, GetPersonAssignmentByID all have identical scanning logic
+- Same nullable field handling repeated across all three functions
+- Identical error wrapping patterns: `fmt.Errorf("failed to...: %w", err)`
+- Weird pointer creation: `&[]int{int(questionID.Int64)}[0]` repeated everywhere
+
+REFACTORING PLAN:
+
+1. **Create scanPersonAssignment Helper (TDD)**
+   - RED: Write failing test for helper function
+   - GREEN: Extract common scanning logic into reusable helper
+   - REFACTOR: Update all three functions to use helper
+   - Eliminate 50+ lines of duplicate code
+
+2. **Fix GetBodyMindQuestionsByCategory**
+   - Make it use existing queryBodyMindQuestions helper
+   - Eliminate duplicate query execution logic
+
+3. **Fix Pointer Creation Pattern**
+   - Replace weird `&[]int{int(questionID.Int64)}[0]` with clean helper
+   - Create consistent nullable field conversion
+
+4. **Verify All Callers Still Work**
+   - Ensure tests pass for all existing functions
+   - Maintain exact same public interfaces and behaviors
+   - Transparent refactoring - no breaking changes
+
+Technical Requirements:
+- Follow strict TDD methodology (Red-Green-Refactor cycles)
+- Maintain exact same return types and error messages
+- No behavioral changes - pure code cleanup
+- Comprehensive test coverage for new helper functions
+- All existing tests must continue passing
+
+Expected outcome: Clean, maintainable database code with eliminated duplication,
+consistent patterns, and improved readability - all achieved through TDD
 ```
 
 ---
 
 ## Current Status Summary
 
-**Phase 1 Progress: 83% Complete (10/12 prompts)**
+**Phase 1 Progress: 92% Complete (12/13 prompts)**
 
 ### ✅ Completed Core Functionality:
 - **Project Structure** - Go modules, proper directory layout
@@ -584,10 +641,10 @@ with clear instructions and no confusion about categories or duplicate assignmen
 - **Auto-Assignment Architecture** - ProcessAndSaveSubmission flow with articles correctly appearing in newsletter
 
 ### 🔄 Current Work:
-- **Newsletter Assignment UX Improvements** - Fix category instructions, add reply-to-bot functionality, prevent duplicate assignments
+- **Database Function Refactoring** - Eliminate code duplication and improve maintainability using TDD methodology
 
 ### 🎯 Remaining Work:
-- **Integration Testing & Phase 1 Completion** - End-to-end testing and documentation after UX improvements
+- **Integration Testing & Phase 1 Completion** - End-to-end testing and documentation after refactoring
 - Phase 2 planning: Advanced newsletter features and distribution automation
 
 The core newsletter submission and AI processing system is **production-ready** with comprehensive test coverage. 
