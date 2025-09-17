@@ -265,6 +265,20 @@ func (m *MockSubmissionManager) GetAllSubmissions(ctx context.Context) ([]databa
 	return nil, nil // Not needed for these tests
 }
 
+func (m *MockSubmissionManager) DeleteSubmission(ctx context.Context, id int) error {
+	if m.Error != nil {
+		return m.Error
+	}
+	// Remove submission from CreatedSubmissions if it exists
+	for i, submission := range m.CreatedSubmissions {
+		if submission.ID == id {
+			m.CreatedSubmissions = append(m.CreatedSubmissions[:i], m.CreatedSubmissions[i+1:]...)
+			return nil
+		}
+	}
+	return nil // Not found, but not an error for mock
+}
+
 type MockAIService struct {
 	ProcessedSubmissions  []database.Submission
 	ProcessedWithUserInfo []ProcessWithUserInfoCall

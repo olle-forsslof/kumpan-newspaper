@@ -121,6 +121,25 @@ func (sm *SubmissionManager) scanSubmissions(rows *sql.Rows) ([]Submission, erro
 	return submissions, nil
 }
 
+// DeleteSubmission deletes a submission by ID
+func (sm *SubmissionManager) DeleteSubmission(ctx context.Context, id int) error {
+	result, err := sm.db.ExecContext(ctx, "DELETE FROM submissions WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("failed to delete submission: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("submission not found")
+	}
+
+	return nil
+}
+
 // CreateAnonymousSubmission creates a submission without user attribution
 func (db *DB) CreateAnonymousSubmission(content, category string) (*Submission, error) {
 	result, err := db.Exec(

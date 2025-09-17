@@ -37,6 +37,7 @@ type SubmissionManager interface {
 	CreateNewsSubmission(ctx context.Context, userID, content string) (*database.Submission, error)
 	GetSubmissionsByUser(ctx context.Context, userID string) ([]database.Submission, error)
 	GetAllSubmissions(ctx context.Context) ([]database.Submission, error)
+	DeleteSubmission(ctx context.Context, id int) error
 }
 
 func NewBot(cfg SlackConfig, questionSelector QuestionSelector, adminUsers []string) Bot {

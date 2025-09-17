@@ -140,6 +140,230 @@ func TestAdminHandler_ListSubmissionsByUser(t *testing.T) {
 	}
 }
 
+// TDD: Test admin command to remove user submissions
+func TestAdminHandler_RemoveSubmission(t *testing.T) {
+	// Set up test database
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("NewSimple() failed: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	// Create SubmissionManager and add test data
+	submissionManager := database.NewSubmissionManager(db.DB)
+	ctx := context.Background()
+
+	// Add submissions from different users
+	submission1, err := submissionManager.CreateNewsSubmission(ctx, "U111111111", "User 1 story to remove")
+	if err != nil {
+		t.Fatalf("Failed to create test submission: %v", err)
+	}
+
+	submission2, err := submissionManager.CreateNewsSubmission(ctx, "U111111111", "User 1 another story")
+	if err != nil {
+		t.Fatalf("Failed to create test submission: %v", err)
+	}
+
+	submission3, err := submissionManager.CreateNewsSubmission(ctx, "U222222222", "User 2 story should remain")
+	if err != nil {
+		t.Fatalf("Failed to create test submission: %v", err)
+	}
+
+	// Create admin handler
+	questionSelector := database.NewQuestionSelector(db.DB)
+	adminUsers := []string{"U999999999"}
+	adminHandler := NewAdminHandlerWithSubmissions(questionSelector, adminUsers, submissionManager)
+
+	// Test admin remove-submission command
+	cmd := &AdminCommand{
+		Action: "remove-submission",
+		Args:   []string{"U111111111"}, // Remove submissions for this user
+	}
+
+	response, err := adminHandler.HandleAdminCommand(ctx, "U999999999", cmd)
+	if err != nil {
+		t.Fatalf("HandleAdminCommand failed: %v", err)
+	}
+
+	// Verify response indicates successful removal
+	if !strings.Contains(response.Text, "removed") {
+		t.Errorf("Expected response to indicate removal, got: %s", response.Text)
+	}
+
+	// Verify User 1's submissions are gone
+	user1Submissions, err := submissionManager.GetSubmissionsByUser(ctx, "U111111111")
+	if err != nil {
+		t.Fatalf("Failed to get user submissions: %v", err)
+	}
+
+	if len(user1Submissions) != 0 {
+		t.Errorf("Expected 0 submissions for User 1 after removal, got %d", len(user1Submissions))
+	}
+
+	// Verify User 2's submissions remain
+	user2Submissions, err := submissionManager.GetSubmissionsByUser(ctx, "U222222222")
+	if err != nil {
+		t.Fatalf("Failed to get user submissions: %v", err)
+	}
+
+	if len(user2Submissions) != 1 {
+		t.Errorf("Expected 1 submission for User 2 to remain, got %d", len(user2Submissions))
+	}
+
+	// Verify the remaining submission is the correct one
+	if len(user2Submissions) > 0 && user2Submissions[0].Content != "User 2 story should remain" {
+		t.Errorf("Expected User 2's submission to remain unchanged")
+	}
+
+	// Test edge case: removing submissions for user with no submissions
+	cmdEmpty := &AdminCommand{
+		Action: "remove-submission",
+		Args:   []string{"U333333333"}, // User with no submissions
+	}
+
+	responseEmpty, err := adminHandler.HandleAdminCommand(ctx, "U999999999", cmdEmpty)
+	if err != nil {
+		t.Fatalf("HandleAdminCommand failed for empty case: %v", err)
+	}
+
+	// Should handle gracefully
+	if !strings.Contains(responseEmpty.Text, "No submissions found") && !strings.Contains(responseEmpty.Text, "removed 0") {
+		t.Errorf("Expected graceful handling of user with no submissions, got: %s", responseEmpty.Text)
+	}
+
+	// Suppress unused variable warnings for the test
+	_ = submission1
+	_ = submission2
+	_ = submission3
+}
+
+// TDD: Test remove-submission command with username resolution
+func TestAdminHandler_RemoveSubmissionWithUsernameResolution(t *testing.T) {
+	// Set up test database
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("NewSimple() failed: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	// Create SubmissionManager and add test data
+	submissionManager := database.NewSubmissionManager(db.DB)
+	ctx := context.Background()
+
+	// Add submissions using user ID
+	_, err = submissionManager.CreateNewsSubmission(ctx, "U111111111", "User story to remove via username")
+	if err != nil {
+		t.Fatalf("Failed to create test submission: %v", err)
+	}
+
+	// Create admin handler with weekly automation (includes broadcast manager)
+	questionSelector := database.NewQuestionSelector(db.DB)
+	adminUsers := []string{"U999999999"}
+	adminHandler := NewAdminHandlerWithWeeklyAutomation(questionSelector, adminUsers, submissionManager, db, "fake-token")
+
+	// Test case 1: Using user ID (should work as before)
+	cmd := &AdminCommand{
+		Action: "remove-submission",
+		Args:   []string{"U111111111"}, // User ID format
+	}
+
+	response, err := adminHandler.HandleAdminCommand(ctx, "U999999999", cmd)
+	if err != nil {
+		t.Fatalf("HandleAdminCommand failed: %v", err)
+	}
+
+	if !strings.Contains(response.Text, "removed") {
+		t.Errorf("Expected response to indicate removal for user ID, got: %s", response.Text)
+	}
+
+	// Verify submission was removed
+	submissions, err := submissionManager.GetSubmissionsByUser(ctx, "U111111111")
+	if err != nil {
+		t.Fatalf("Failed to get user submissions: %v", err)
+	}
+
+	if len(submissions) != 0 {
+		t.Errorf("Expected 0 submissions after removal via user ID, got %d", len(submissions))
+	}
+
+	// Test case 2: Username lookup (when no broadcast manager available in basic handler)
+	// Re-create submission for username test
+	_, err = submissionManager.CreateNewsSubmission(ctx, "U111111111", "Another story for username test")
+	if err != nil {
+		t.Fatalf("Failed to create test submission: %v", err)
+	}
+
+	// Create basic admin handler without broadcast manager
+	basicAdminHandler := NewAdminHandlerWithSubmissions(questionSelector, adminUsers, submissionManager)
+
+	cmdUsername := &AdminCommand{
+		Action: "remove-submission",
+		Args:   []string{"testuser"}, // Username format (should fail gracefully)
+	}
+
+	responseUsername, err := basicAdminHandler.HandleAdminCommand(ctx, "U999999999", cmdUsername)
+	if err != nil {
+		t.Fatalf("HandleAdminCommand failed: %v", err)
+	}
+
+	// Should handle gracefully when broadcast manager not available
+	if !strings.Contains(responseUsername.Text, "cannot lookup user") && !strings.Contains(responseUsername.Text, "broadcast manager not available") {
+		t.Errorf("Expected error about broadcast manager not available, got: %s", responseUsername.Text)
+	}
+}
+
+// TDD: Test remove-submission command with invalid arguments
+func TestAdminHandler_RemoveSubmissionInvalidArgs(t *testing.T) {
+	// Set up minimal test environment
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("NewSimple() failed: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	submissionManager := database.NewSubmissionManager(db.DB)
+	questionSelector := database.NewQuestionSelector(db.DB)
+	adminUsers := []string{"U999999999"}
+	adminHandler := NewAdminHandlerWithSubmissions(questionSelector, adminUsers, submissionManager)
+
+	// Test command without username argument
+	cmd := &AdminCommand{
+		Action: "remove-submission",
+		Args:   []string{}, // Missing username
+	}
+
+	response, err := adminHandler.HandleAdminCommand(context.Background(), "U999999999", cmd)
+	if err != nil {
+		t.Fatalf("HandleAdminCommand failed: %v", err)
+	}
+
+	// Should return usage message
+	if !strings.Contains(response.Text, "Usage:") {
+		t.Errorf("Expected usage message for invalid args, got: %s", response.Text)
+	}
+}
+
 // TDD: Test unauthorized user cannot access submission management
 func TestAdminHandler_UnauthorizedSubmissionAccess(t *testing.T) {
 	// Set up test database

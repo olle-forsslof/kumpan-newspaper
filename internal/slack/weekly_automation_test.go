@@ -527,6 +527,10 @@ func (m *mockSubmissionManager) GetAllSubmissions(ctx context.Context) ([]databa
 	}, nil
 }
 
+func (m *mockSubmissionManager) DeleteSubmission(ctx context.Context, id int) error {
+	return nil // Mock implementation - always succeeds
+}
+
 type mockBroadcastManager struct {
 	sendDirectMessageCalled bool
 	lastUserID              string

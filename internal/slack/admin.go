@@ -139,6 +139,8 @@ func (ah *AdminHandler) HandleAdminCommand(ctx context.Context, userID string, c
 		return ah.handleTestRotation(ctx, cmd.Args)
 	case "list-submissions":
 		return ah.handleListSubmissions(ctx, cmd.Args)
+	case "remove-submission":
+		return ah.handleRemoveSubmission(ctx, cmd.Args)
 
 	// Weekly automation commands
 	case "assign-question":
@@ -208,6 +210,7 @@ func (ah *AdminHandler) handleHelp() (*SlashCommandResponse, error) {
 **Submission Management:**
      • admin list-submissions - Show all news submissions
      • admin list-submissions [user_id] - Show submissions by specific user
+     • admin remove-submission [@username|user_id] - Remove user's submissions
 
 **Weekly Automation:**
      • admin assign-question [feature|general|body_mind] [@user1 @user2] - Send questions to users
@@ -365,6 +368,89 @@ func (ah *AdminHandler) handleListSubmissions(ctx context.Context, args []string
 
 	return &SlashCommandResponse{
 		Text:         response.String(),
+		ResponseType: "ephemeral",
+	}, nil
+}
+
+// handleRemoveSubmission handles removing news submissions for a specific user
+func (ah *AdminHandler) handleRemoveSubmission(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+	if ah.submissionManager == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Submission management is not available.",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	if len(args) < 1 {
+		return &SlashCommandResponse{
+			Text:         "Usage: admin remove-submission [@username|user_id]",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	userIdentifier := args[0]
+
+	// Resolve username to user ID (handles both usernames and user IDs)
+	userID, err := ah.resolveUserIdentifier(ctx, userIdentifier)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to resolve user '%s': %v", userIdentifier, err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Get all submissions for this user
+	submissions, err := ah.submissionManager.GetSubmissionsByUser(ctx, userID)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to get submissions for user %s: %v", userIdentifier, err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	if len(submissions) == 0 {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("📰 No submissions found for user %s.", userIdentifier),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Delete each submission
+	var deletedCount int
+	var errors []string
+
+	for _, submission := range submissions {
+		err := ah.submissionManager.DeleteSubmission(ctx, submission.ID)
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("Failed to delete submission %d: %v", submission.ID, err))
+			continue
+		}
+		deletedCount++
+	}
+
+	// Format response
+	var responseText strings.Builder
+
+	if deletedCount > 0 {
+		responseText.WriteString(fmt.Sprintf("✅ Successfully removed %d submission(s) for user %s.\n", deletedCount, userIdentifier))
+	}
+
+	if len(errors) > 0 {
+		if deletedCount > 0 {
+			responseText.WriteString("\n")
+		}
+		responseText.WriteString("❌ Errors occurred:\n")
+		for _, errMsg := range errors {
+			responseText.WriteString(fmt.Sprintf("• %s\n", errMsg))
+		}
+	}
+
+	if deletedCount == 0 && len(errors) == 0 {
+		responseText.WriteString(fmt.Sprintf("📰 No submissions found for user %s.", userIdentifier))
+	}
+
+	return &SlashCommandResponse{
+		Text:         responseText.String(),
 		ResponseType: "ephemeral",
 	}, nil
 }
