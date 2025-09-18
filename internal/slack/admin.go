@@ -400,24 +400,8 @@ func (ah *AdminHandler) handleRemoveSubmission(ctx context.Context, args []strin
 		}, nil
 	}
 
-	// Get all submissions for this user
-	submissions, err := ah.submissionManager.GetSubmissionsByUser(ctx, userID)
-	if err != nil {
-		return &SlashCommandResponse{
-			Text:         fmt.Sprintf("❌ Failed to get submissions for user %s: %v", userIdentifier, err),
-			ResponseType: "ephemeral",
-		}, nil
-	}
-
-	if len(submissions) == 0 {
-		return &SlashCommandResponse{
-			Text:         fmt.Sprintf("📰 No submissions found for user %s.", userIdentifier),
-			ResponseType: "ephemeral",
-		}, nil
-	}
-
-	// Clean up assignment records first (to allow new assignments)
-	// Get current week to find relevant assignments
+	// Clean up assignment records FIRST (to allow new assignments)
+	// Do this regardless of whether there are submissions or not
 	if ah.db != nil {
 		now := time.Now()
 		currentYear, currentWeek := now.ISOWeek()
@@ -457,6 +441,15 @@ func (ah *AdminHandler) handleRemoveSubmission(ctx context.Context, args []strin
 		}
 	}
 
+	// Get all submissions for this user
+	submissions, err := ah.submissionManager.GetSubmissionsByUser(ctx, userID)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to get submissions for user %s: %v", userIdentifier, err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
 	// Delete each submission
 	var deletedCount int
 	var errors []string
@@ -488,7 +481,7 @@ func (ah *AdminHandler) handleRemoveSubmission(ctx context.Context, args []strin
 	}
 
 	if deletedCount == 0 && len(errors) == 0 {
-		responseText.WriteString(fmt.Sprintf("📰 No submissions found for user %s.", userIdentifier))
+		responseText.WriteString(fmt.Sprintf("✅ Cleaned up assignments for user %s. No submissions found to remove.", userIdentifier))
 	}
 
 	return &SlashCommandResponse{
