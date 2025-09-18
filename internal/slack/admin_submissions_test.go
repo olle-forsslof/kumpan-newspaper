@@ -478,6 +478,95 @@ func TestAdminHandler_RemoveSubmissionCleansUpAssignments(t *testing.T) {
 	_ = submission2
 }
 
+// TDD: Debug the real-world assignment issue
+func TestDebugAssignmentIssue(t *testing.T) {
+	// Set up test database that matches production scenario
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("NewSimple() failed: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	submissionManager := database.NewSubmissionManager(db.DB)
+	questionSelector := database.NewQuestionSelector(db.DB)
+	adminUsers := []string{"U999999999"}
+
+	// Create admin handler with weekly automation (for future use)
+	_ = NewAdminHandlerWithWeeklyAutomation(questionSelector, adminUsers, submissionManager, db, "fake-token")
+
+	// Create the same weekly issue as in production (Week 38, 2025)
+	issue, err := db.CreateWeeklyNewsletterIssue(38, 2025)
+	if err != nil {
+		t.Fatalf("Failed to create weekly issue: %v", err)
+	}
+
+	userID := "U09EDEQSCV9"
+
+	// Verify no assignments exist initially
+	assignments, err := db.GetAssignmentsByUserAndIssue(userID, issue.ID)
+	if err != nil {
+		t.Fatalf("Failed to get assignments: %v", err)
+	}
+	t.Logf("Initial assignments for user %s in issue %d: %d", userID, issue.ID, len(assignments))
+
+	// Test 1: Try to create assignment directly (should work)
+	_, err = db.CreatePersonAssignment(database.PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: database.ContentTypeFeature,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create first assignment: %v", err)
+	}
+	t.Logf("Successfully created first assignment")
+
+	// Test 2: Try to create another assignment (should fail)
+	_, err = db.CreatePersonAssignment(database.PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: database.ContentTypeGeneral,
+	})
+	if err == nil {
+		t.Fatal("Expected error when creating duplicate assignment")
+	}
+	t.Logf("Correctly got error for duplicate assignment: %v", err)
+
+	// Test 3: Remove assignments using our new method
+	err = db.DeletePersonAssignmentsByUser(userID, issue.ID)
+	if err != nil {
+		t.Fatalf("Failed to delete assignments: %v", err)
+	}
+	t.Logf("Successfully deleted assignments")
+
+	// Test 4: Verify assignments are gone
+	assignments, err = db.GetAssignmentsByUserAndIssue(userID, issue.ID)
+	if err != nil {
+		t.Fatalf("Failed to get assignments after deletion: %v", err)
+	}
+	if len(assignments) != 0 {
+		t.Fatalf("Expected 0 assignments after deletion, got %d", len(assignments))
+	}
+	t.Logf("Confirmed assignments are deleted")
+
+	// Test 5: Try to create assignment again (should work now)
+	_, err = db.CreatePersonAssignment(database.PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: database.ContentTypeGeneral,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create assignment after cleanup: %v", err)
+	}
+	t.Logf("Successfully created assignment after cleanup")
+}
+
 // TDD: Test unauthorized user cannot access submission management
 func TestAdminHandler_UnauthorizedSubmissionAccess(t *testing.T) {
 	// Set up test database

@@ -258,6 +258,26 @@ func (db *DB) DeletePersonAssignmentsByUser(userID string, issueID int) error {
 	return nil
 }
 
+// DeleteAllPersonAssignmentsByUser deletes ALL assignments for a user across all issues
+func (db *DB) DeleteAllPersonAssignmentsByUser(userID string) error {
+	query := `DELETE FROM person_assignments WHERE person_id = ?`
+
+	result, err := db.Exec(query, userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete all person assignments: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	// It's ok if no rows were affected - user might not have had assignments
+	_ = rowsAffected
+
+	return nil
+}
+
 // LinkSubmissionToAssignment links a submission to an existing assignment
 func (db *DB) LinkSubmissionToAssignment(assignmentID, submissionID int) error {
 	query := `

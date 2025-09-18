@@ -421,8 +421,14 @@ func (ah *AdminHandler) handleRemoveSubmission(ctx context.Context, args []strin
 	if ah.db != nil {
 		now := time.Now()
 		currentYear, currentWeek := now.ISOWeek()
+		slog.Info("remove-submission: cleaning up assignments",
+			"user", userID, "week", currentWeek, "year", currentYear)
+
 		issue, err := ah.db.GetOrCreateWeeklyIssue(currentWeek, currentYear)
 		if err == nil {
+			slog.Info("remove-submission: found issue for cleanup",
+				"issue_id", issue.ID, "week", issue.WeekNumber, "year", issue.Year)
+
 			// Delete assignments for this user in current week
 			// This allows them to get new assignments after removal
 			err = ah.db.DeletePersonAssignmentsByUser(userID, issue.ID)
@@ -430,7 +436,24 @@ func (ah *AdminHandler) handleRemoveSubmission(ctx context.Context, args []strin
 				// Log error but don't fail the whole operation
 				slog.Warn("Failed to clean up assignments during remove-submission",
 					"user", userID, "issue", issue.ID, "error", err)
+			} else {
+				slog.Info("remove-submission: successfully cleaned up assignments",
+					"user", userID, "issue_id", issue.ID)
 			}
+		} else {
+			slog.Warn("remove-submission: failed to get issue for cleanup",
+				"week", currentWeek, "year", currentYear, "error", err)
+		}
+
+		// As an additional safety measure, clean up ALL assignments for this user
+		// This handles edge cases where assignments might exist in other issues
+		err = ah.db.DeleteAllPersonAssignmentsByUser(userID)
+		if err != nil {
+			slog.Warn("remove-submission: failed to clean up all assignments",
+				"user", userID, "error", err)
+		} else {
+			slog.Info("remove-submission: cleaned up all assignments for user",
+				"user", userID)
 		}
 	}
 
@@ -513,6 +536,9 @@ func (ah *AdminHandler) handleAssignQuestion(ctx context.Context, args []string)
 	// Get current week and create issue if needed
 	now := time.Now()
 	currentYear, currentWeek := now.ISOWeek()
+	slog.Info("assign-question: attempting assignment",
+		"week", currentWeek, "year", currentYear, "users", len(users))
+
 	issue, err := ah.db.GetOrCreateWeeklyIssue(currentWeek, currentYear)
 	if err != nil {
 		return &SlashCommandResponse{
@@ -520,6 +546,9 @@ func (ah *AdminHandler) handleAssignQuestion(ctx context.Context, args []string)
 			ResponseType: "ephemeral",
 		}, nil
 	}
+
+	slog.Info("assign-question: using issue",
+		"issue_id", issue.ID, "week", issue.WeekNumber, "year", issue.Year)
 
 	var successfulAssignments []string
 	var errors []string
@@ -583,11 +612,19 @@ func (ah *AdminHandler) handleAssignQuestion(ctx context.Context, args []string)
 			assignment.QuestionID = &question.ID
 		}
 
+		slog.Info("assign-question: creating assignment",
+			"user", userID, "issue_id", assignment.IssueID, "content_type", assignment.ContentType)
+
 		_, err = ah.db.CreatePersonAssignment(assignment)
 		if err != nil {
+			slog.Warn("assign-question: assignment creation failed",
+				"user", userID, "issue_id", assignment.IssueID, "error", err)
 			errors = append(errors, fmt.Sprintf("User %s: Failed to create assignment: %v", userID, err))
 			continue
 		}
+
+		slog.Info("assign-question: assignment created successfully",
+			"user", userID, "issue_id", assignment.IssueID)
 
 		// Send direct message to user with question
 		message := ah.createQuestionMessage(questionText, contentType, currentWeek, currentYear)
