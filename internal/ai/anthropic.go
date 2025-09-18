@@ -205,7 +205,7 @@ func (a *AnthropicService) ProcessAndSaveSubmission(
 func (a *AnthropicService) callAnthropicAPI(ctx context.Context, prompt string) (*ProcessingResult, error) {
 	response, err := a.client.Messages.New(ctx, anthropic.MessageNewParams{
 		Model:     a.model,
-		MaxTokens: 600, // Reasonable limit for newsletter articles
+		MaxTokens: 1200, // Reasonable limit for newsletter articles
 		Messages: []anthropic.MessageParam{
 			anthropic.NewUserMessage(anthropic.NewTextBlock(prompt)),
 		},
