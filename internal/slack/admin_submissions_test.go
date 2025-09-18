@@ -478,6 +478,156 @@ func TestAdminHandler_RemoveSubmissionCleansUpAssignments(t *testing.T) {
 	_ = submission2
 }
 
+// TDD: Test DM reply journalist type determination for feature assignments
+func TestDMReplyJournalistTypeForFeatureAssignment(t *testing.T) {
+	// Set up test database
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("NewSimple() failed: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	submissionManager := database.NewSubmissionManager(db.DB)
+	questionSelector := database.NewQuestionSelector(db.DB)
+	adminUsers := []string{"U999999999"}
+	ctx := context.Background()
+
+	// Create bot with weekly automation
+	bot := NewBotWithWeeklyAutomation(SlackConfig{
+		Token:         "fake-token",
+		SigningSecret: "fake-secret",
+	}, questionSelector, adminUsers, submissionManager, nil, db)
+
+	// Step 1: Create a weekly issue and feature assignment
+	issue, err := db.CreateWeeklyNewsletterIssue(38, 2025)
+	if err != nil {
+		t.Fatalf("Failed to create weekly issue: %v", err)
+	}
+
+	userID := "U123456789"
+	assignment := database.PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: database.ContentTypeFeature,
+		QuestionID:  nil, // No specific question for this test
+	}
+
+	assignmentID, err := db.CreatePersonAssignment(assignment)
+	if err != nil {
+		t.Fatalf("Failed to create feature assignment: %v", err)
+	}
+
+	// Step 2: Create submission (like DM reply would) - NO QuestionID set
+	submission, err := submissionManager.CreateNewsSubmission(ctx, userID, "My awesome feature story")
+	if err != nil {
+		t.Fatalf("Failed to create submission: %v", err)
+	}
+
+	// Step 3: Link submission to feature assignment (like DM reply flow does)
+	err = db.LinkSubmissionToAssignment(assignmentID, submission.ID)
+	if err != nil {
+		t.Fatalf("Failed to link submission to assignment: %v", err)
+	}
+
+	// Step 4: Test journalist type determination
+	slackBot, ok := bot.(*slackBot)
+	if !ok {
+		t.Fatal("Expected slackBot type")
+	}
+
+	journalistType := slackBot.determineJournalistTypeFromSubmission(ctx, submission)
+
+	// Step 5: CRITICAL TEST - Should return "feature" for feature assignment
+	// This will FAIL until we implement the fix
+	if journalistType != "feature" {
+		t.Errorf("Expected journalist type 'feature' for DM reply to feature assignment, got '%s'", journalistType)
+	}
+
+	// Verify submission has no QuestionID (simulating DM reply)
+	if submission.QuestionID != nil {
+		t.Error("Test setup error: submission should not have QuestionID (simulating DM reply)")
+	}
+}
+
+// TDD: Test DM reply journalist type determination for general assignments
+func TestDMReplyJournalistTypeForGeneralAssignment(t *testing.T) {
+	// Set up test database
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+
+	db, err := database.NewSimple(dbPath)
+	if err != nil {
+		t.Fatalf("NewSimple() failed: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	submissionManager := database.NewSubmissionManager(db.DB)
+	questionSelector := database.NewQuestionSelector(db.DB)
+	adminUsers := []string{"U999999999"}
+	ctx := context.Background()
+
+	// Create bot with weekly automation
+	bot := NewBotWithWeeklyAutomation(SlackConfig{
+		Token:         "fake-token",
+		SigningSecret: "fake-secret",
+	}, questionSelector, adminUsers, submissionManager, nil, db)
+
+	// Step 1: Create a weekly issue and general assignment
+	issue, err := db.CreateWeeklyNewsletterIssue(38, 2025)
+	if err != nil {
+		t.Fatalf("Failed to create weekly issue: %v", err)
+	}
+
+	userID := "U123456789"
+	assignment := database.PersonAssignment{
+		IssueID:     issue.ID,
+		PersonID:    userID,
+		ContentType: database.ContentTypeGeneral,
+		QuestionID:  nil,
+	}
+
+	assignmentID, err := db.CreatePersonAssignment(assignment)
+	if err != nil {
+		t.Fatalf("Failed to create general assignment: %v", err)
+	}
+
+	// Step 2: Create submission (like DM reply would) - NO QuestionID set
+	submission, err := submissionManager.CreateNewsSubmission(ctx, userID, "My general news story")
+	if err != nil {
+		t.Fatalf("Failed to create submission: %v", err)
+	}
+
+	// Step 3: Link submission to general assignment
+	err = db.LinkSubmissionToAssignment(assignmentID, submission.ID)
+	if err != nil {
+		t.Fatalf("Failed to link submission to assignment: %v", err)
+	}
+
+	// Step 4: Test journalist type determination
+	slackBot, ok := bot.(*slackBot)
+	if !ok {
+		t.Fatal("Expected slackBot type")
+	}
+
+	journalistType := slackBot.determineJournalistTypeFromSubmission(ctx, submission)
+
+	// Step 5: Should return "general" for general assignment
+	if journalistType != "general" {
+		t.Errorf("Expected journalist type 'general' for DM reply to general assignment, got '%s'", journalistType)
+	}
+}
+
 // TDD: Debug the real-world assignment issue
 func TestDebugAssignmentIssue(t *testing.T) {
 	// Set up test database that matches production scenario

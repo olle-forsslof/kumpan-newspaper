@@ -81,6 +81,7 @@ type DatabaseInterface interface {
 	GetActiveAssignmentsByUser(userID string) ([]database.PersonAssignment, error)
 	LinkSubmissionToAssignment(assignmentID, submissionID int) error
 	GetPersonAssignmentByID(assignmentID int) (*database.PersonAssignment, error)
+	GetAssignmentBySubmissionID(submissionID int) (*database.PersonAssignment, error)
 	// Anonymous submission methods
 	CreateAnonymousSubmission(content, category string) (*database.Submission, error)
 	GetAnonymousSubmissionsByCategory(category string) ([]database.Submission, error)

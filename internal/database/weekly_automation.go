@@ -278,6 +278,26 @@ func (db *DB) DeleteAllPersonAssignmentsByUser(userID string) error {
 	return nil
 }
 
+// GetAssignmentBySubmissionID finds the assignment that a submission is linked to
+func (db *DB) GetAssignmentBySubmissionID(submissionID int) (*PersonAssignment, error) {
+	query := `
+		SELECT id, issue_id, person_id, content_type, question_id, submission_id, assigned_at, created_at
+		FROM person_assignments 
+		WHERE submission_id = ?
+		LIMIT 1`
+
+	row := db.QueryRow(query, submissionID)
+	assignment, err := db.scanSinglePersonAssignment(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("no assignment found for submission %d", submissionID)
+		}
+		return nil, fmt.Errorf("failed to get assignment by submission ID: %w", err)
+	}
+
+	return assignment, nil
+}
+
 // LinkSubmissionToAssignment links a submission to an existing assignment
 func (db *DB) LinkSubmissionToAssignment(assignmentID, submissionID int) error {
 	query := `

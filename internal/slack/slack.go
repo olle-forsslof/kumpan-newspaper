@@ -231,6 +231,20 @@ func contentTypeToSubmissionCategory(contentType database.ContentType) string {
 	}
 }
 
+// contentTypeToJournalistType maps database ContentType to journalist type
+func contentTypeToJournalistType(contentType database.ContentType) string {
+	switch contentType {
+	case database.ContentTypeFeature:
+		return "feature"
+	case database.ContentTypeGeneral:
+		return "general"
+	case database.ContentTypeBodyMind:
+		return "body_mind"
+	default:
+		return "general"
+	}
+}
+
 func (b *slackBot) handleRegularHelp() *SlashCommandResponse {
 	help := "*Newsletter Bot Help*\n\n" +
 		"This bot helps manage daily/weekly newsletter questions and collect news stories.\n\n" +
@@ -359,24 +373,28 @@ func (b *slackBot) handleNewsSubmission(ctx context.Context, cmd SlashCommand) (
 
 // determineJournalistTypeFromSubmission determines journalist type based on question category
 func (b *slackBot) determineJournalistTypeFromSubmission(ctx context.Context, submission *database.Submission) string {
-	// If no question ID, this is a general news submission
-	if submission.QuestionID == nil {
-		return "general"
-	}
-
-	// Get the question to find its category
-	if b.questionSelector != nil {
-		question, err := b.questionSelector.GetQuestionByID(ctx, *submission.QuestionID)
-		if err != nil {
-			// If we can't get the question, default to general
-			return "general"
+	// First priority: If submission has a question ID, use question category
+	if submission.QuestionID != nil {
+		// Get the question to find its category
+		if b.questionSelector != nil {
+			question, err := b.questionSelector.GetQuestionByID(ctx, *submission.QuestionID)
+			if err == nil {
+				// Map question category to journalist type using existing mapping
+				return ai.GetJournalistTypeForCategory(question.Category)
+			}
 		}
-
-		// Map question category to journalist type using existing mapping
-		return ai.GetJournalistTypeForCategory(question.Category)
 	}
 
-	// Fallback to general if no question selector available
+	// Second priority: If no question ID, check if submission is linked to an assignment
+	if b.db != nil {
+		assignment, err := b.db.GetAssignmentBySubmissionID(submission.ID)
+		if err == nil && assignment != nil {
+			// Use assignment's content type to determine journalist type
+			return contentTypeToJournalistType(assignment.ContentType)
+		}
+	}
+
+	// Fallback: Default to general for unlinked submissions
 	return "general"
 }
 
