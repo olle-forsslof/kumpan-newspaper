@@ -2,6 +2,7 @@ package slack
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 )
@@ -25,14 +26,21 @@ func (h *EventCallbackHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Read the raw body first (needed for signature verification)
+	rawBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Error("Failed to read request body", "error", err)
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
 	// Verify request signature
 	if h.signingSecret != "" {
 		signature := r.Header.Get("X-Slack-Signature")
 		timestamp := r.Header.Get("X-Slack-Request-Timestamp")
 
-		// Need to read the body for verification
-		// This is a simplification - real implementation would read raw body
-		if !VerifySignature(h.signingSecret, timestamp, "", signature) {
+		// Use the raw body for signature verification
+		if !VerifySignature(h.signingSecret, timestamp, string(rawBody), signature) {
 			slog.Warn("Invalid signature - rejecting request",
 				"signature", signature,
 				"timestamp", timestamp)
@@ -41,13 +49,14 @@ func (h *EventCallbackHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
-	// Parse the event
+	// Parse the event payload from raw body
 	var payload struct {
-		Type  string     `json:"type"`
-		Event SlackEvent `json:"event"`
+		Type      string     `json:"type"`
+		Event     SlackEvent `json:"event"`
+		Challenge string     `json:"challenge"` // For URL verification
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+	if err := json.Unmarshal(rawBody, &payload); err != nil {
 		slog.Error("Failed to parse event payload", "error", err)
 		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
@@ -55,17 +64,9 @@ func (h *EventCallbackHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 	// URL verification challenge - special case when Slack verifies your endpoint
 	if payload.Type == "url_verification" {
-		var challenge struct {
-			Challenge string `json:"challenge"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&challenge); err != nil {
-			http.Error(w, "Failed to read challenge", http.StatusBadRequest)
-			return
-		}
-
 		// Respond with challenge token
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte(challenge.Challenge))
+		w.Write([]byte(payload.Challenge))
 		return
 	}
 
