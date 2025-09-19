@@ -137,9 +137,9 @@ func testAdminWeekStatusCommand(ctx context.Context, db *database.DB) func(t *te
 			t.Fatalf("Failed to handle week-status command: %v", err)
 		}
 
-		// Response should be a placeholder since we haven't fully implemented it
-		if !strings.Contains(response.Text, "Week status not fully implemented") {
-			t.Error("Expected placeholder response for week status")
+		// Response should contain actual week status information
+		if !strings.Contains(response.Text, "Week Status") {
+			t.Errorf("Expected week status response, got: %s", response.Text)
 		}
 	}
 }
@@ -502,6 +502,10 @@ func (m *mockQuestionSelector) GetQuestionByID(ctx context.Context, questionID i
 		Text:     "Mock question by ID",
 		Category: "general",
 	}, nil
+}
+
+func (m *mockQuestionSelector) DeleteQuestion(ctx context.Context, questionID int) error {
+	return nil
 }
 
 type mockSubmissionManager struct{}

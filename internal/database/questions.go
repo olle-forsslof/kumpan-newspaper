@@ -146,3 +146,24 @@ func (qs *QuestionSelector) GetQuestionByID(ctx context.Context, id int) (*Quest
 
 	return &q, nil
 }
+
+// DeleteQuestion removes a question from the database
+func (qs *QuestionSelector) DeleteQuestion(ctx context.Context, id int) error {
+	query := `DELETE FROM questions WHERE id = ?`
+
+	result, err := qs.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete question: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("question with ID %d not found", id)
+	}
+
+	return nil
+}

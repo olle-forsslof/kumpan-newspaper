@@ -87,15 +87,15 @@ func TestTemplateService_RenderNewsletter(t *testing.T) {
 		t.Error("Body/mind article headline not found")
 	}
 
-	if !strings.Contains(html, "article-feature") {
+	if !strings.Contains(html, "feature-article") {
 		t.Error("Feature article template not used")
 	}
 
-	if !strings.Contains(html, "article-interview") {
+	if !strings.Contains(html, "interview-article") {
 		t.Error("Interview article template not used")
 	}
 
-	if !strings.Contains(html, "article-bodymind") {
+	if !strings.Contains(html, "bodymind-article") {
 		t.Error("Body/mind article template not used")
 	}
 
@@ -143,7 +143,7 @@ func TestTemplateService_RenderArticle(t *testing.T) {
 				TemplateFormat:   "interview",
 				WordCount:        80,
 			},
-			expectedText: "Q&A Session",
+			expectedText: "Q&amp;A Session", // HTML-encoded version
 			templateName: "interview-article",
 		},
 		{

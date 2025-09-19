@@ -192,9 +192,36 @@ func (ah *AdminHandler) handleRemoveQuestion(ctx context.Context, args []string)
 		}, nil
 	}
 
-	// TODO: implement actual question removal logic
+	// Parse question ID
+	questionIDStr := args[0]
+	questionID := 0
+	if _, err := fmt.Sscanf(questionIDStr, "%d", &questionID); err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("Invalid question ID '%s'. Please provide a numeric ID.", questionIDStr),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Get question details before deletion for confirmation message
+	question, err := ah.questionSelector.GetQuestionByID(ctx, questionID)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("Failed to find question #%d: %v", questionID, err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Delete the question
+	if err := ah.questionSelector.DeleteQuestion(ctx, questionID); err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("Failed to delete question #%d: %v", questionID, err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
 	return &SlashCommandResponse{
-		Text:         "Question removal not implemented yet",
+		Text: fmt.Sprintf("✅ Removed question #%d from category '%s':\n> %s",
+			question.ID, question.Category, question.Text),
 		ResponseType: "ephemeral",
 	}, nil
 }
@@ -732,10 +759,73 @@ func (ah *AdminHandler) handleWeekStatus(ctx context.Context, args []string) (*S
 		}, nil
 	}
 
-	// TODO: Implement the actual week status logic
+	// Get current week's issue
+	now := time.Now()
+	currentYear, currentWeek := now.ISOWeek()
+	issue, err := ah.db.GetOrCreateWeeklyIssue(currentWeek, currentYear)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to get current week issue: %v", err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Get all assignments for the current issue
+	assignments, err := ah.db.GetPersonAssignmentsByIssue(issue.ID)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to get current week assignments: %v", err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Get all submissions for the current issue
+	submissions, err := ah.submissionManager.GetAllSubmissions(ctx)
+	if err != nil {
+		slog.Warn("Failed to get submissions for week status", "error", err)
+		submissions = []database.Submission{} // Continue with empty list
+	}
+
+	// Build status message
+	var statusText strings.Builder
+	statusText.WriteString(fmt.Sprintf("📊 **Current Week Status (Week %d, %d)**\n\n", issue.WeekNumber, issue.Year))
+
+	if len(assignments) == 0 {
+		statusText.WriteString("📝 **Assignments:** None active\n")
+	} else {
+		statusText.WriteString(fmt.Sprintf("📝 **Assignments:** %d active\n", len(assignments)))
+
+		// Group assignments by user
+		userAssignments := make(map[string][]database.PersonAssignment)
+		for _, assignment := range assignments {
+			userAssignments[assignment.PersonID] = append(userAssignments[assignment.PersonID], assignment)
+		}
+
+		// Show assignment summary
+		for userID, userAssgns := range userAssignments {
+			statusText.WriteString(fmt.Sprintf("  • <@%s>: %d assignment(s)\n", userID, len(userAssgns)))
+		}
+	}
+
+	statusText.WriteString(fmt.Sprintf("\n📨 **Submissions:** %d total this week\n", len(submissions)))
+
+	// Count submitted vs assigned
+	submittedCount := 0
+	for _, assignment := range assignments {
+		if assignment.SubmissionID != nil {
+			submittedCount++
+		}
+	}
+
+	if len(assignments) > 0 {
+		statusText.WriteString(fmt.Sprintf("✅ **Completion:** %d/%d assignments submitted (%.1f%%)\n",
+			submittedCount, len(assignments), float64(submittedCount)/float64(len(assignments))*100))
+	}
+
+	statusText.WriteString(fmt.Sprintf("\n🗓️ **Issue ID:** %d", issue.ID))
+
 	return &SlashCommandResponse{
-		Text: "🚧 Week status not fully implemented yet.\n" +
-			"Would show current week assignments and submission status.",
+		Text:         statusText.String(),
 		ResponseType: "ephemeral",
 	}, nil
 }

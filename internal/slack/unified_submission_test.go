@@ -123,7 +123,7 @@ func TestGetActiveAssignmentByUser(t *testing.T) {
 		t.Fatalf("Failed to create test issue: %v", err)
 	}
 
-	// Create test assignments
+	// Create test assignments for different users (business rule: one assignment per user per week)
 	featureAssignment := database.PersonAssignment{
 		IssueID:     issue.ID,
 		PersonID:    "U123456",
@@ -134,7 +134,7 @@ func TestGetActiveAssignmentByUser(t *testing.T) {
 
 	generalAssignment := database.PersonAssignment{
 		IssueID:     issue.ID,
-		PersonID:    "U123456",
+		PersonID:    "U789012", // Different user to avoid constraint violation
 		ContentType: database.ContentTypeGeneral,
 		AssignedAt:  time.Now(),
 		CreatedAt:   time.Now(),
@@ -166,7 +166,7 @@ func TestGetActiveAssignmentByUser(t *testing.T) {
 		},
 		{
 			name:        "find existing general assignment",
-			userID:      "U123456",
+			userID:      "U789012",
 			contentType: database.ContentTypeGeneral,
 			expectFound: true,
 		},

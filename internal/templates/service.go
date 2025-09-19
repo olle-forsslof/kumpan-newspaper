@@ -31,17 +31,13 @@ func NewTemplateService(config *TemplateConfig) (*TemplateService, error) {
 		}
 	}
 
-	// Initialize template with helper functions first
-	tmpl := template.New("newsletter").Funcs(getTemplateFunctions())
-
-	// Parse all HTML templates from templates directory
+	// Parse all HTML templates from templates directory with helper functions
 	templatesPath := filepath.Join("templates", "*.html")
-	var err error
-	tmpl, err = tmpl.ParseGlob(templatesPath)
+	tmpl, err := template.New("newsletter").Funcs(getTemplateFunctions()).ParseGlob(templatesPath)
 	if err != nil {
 		// Try relative path for tests
 		templatesPath = filepath.Join("../../templates", "*.html")
-		tmpl, err = tmpl.ParseGlob(templatesPath)
+		tmpl, err = template.New("newsletter").Funcs(getTemplateFunctions()).ParseGlob(templatesPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse templates: %w", err)
 		}
@@ -116,12 +112,18 @@ func (ts *TemplateService) prepareArticleData(articles []database.ProcessedArtic
 			}
 		}
 
+		// Determine publish date: use ProcessedAt if available, otherwise CreatedAt
+		publishDate := article.CreatedAt
+		if article.ProcessedAt != nil {
+			publishDate = *article.ProcessedAt
+		}
+
 		// Create article data
 		data := ArticleData{
 			ProcessedArticle: &article,
 			FormattedContent: formattedContent,
 			CategoryName:     ts.formatCategoryName(article.JournalistType),
-			PublishDate:      time.Now(), // TODO: Get actual publish date from issue
+			PublishDate:      publishDate,
 		}
 
 		result = append(result, data)
@@ -134,17 +136,17 @@ func (ts *TemplateService) prepareArticleData(articles []database.ProcessedArtic
 func (ts *TemplateService) getArticleTemplateName(journalistType string) string {
 	switch journalistType {
 	case "feature":
-		return "article-feature.html"
+		return "article-feature"
 	case "interview":
-		return "article-interview.html"
+		return "article-interview"
 	case "sports":
-		return "article-sports.html"
+		return "article-sports"
 	case "general":
-		return "article-general.html"
+		return "article-general"
 	case "body_mind":
-		return "article-bodymind.html"
+		return "article-bodymind"
 	default:
-		return "article-general.html"
+		return "article-general"
 	}
 }
 

@@ -73,6 +73,10 @@ func (m *MockQuestionSelector) GetQuestionByID(ctx context.Context, questionID i
 	}, nil
 }
 
+func (m *MockQuestionSelector) DeleteQuestion(ctx context.Context, questionID int) error {
+	return nil
+}
+
 func NewMockBot() *MockBot {
 	return &MockBot{
 		responses:            make(map[string]*SlashCommandResponse),

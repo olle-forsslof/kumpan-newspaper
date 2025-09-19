@@ -212,9 +212,19 @@ func TestSlackBot_AutoJournalistSelection(t *testing.T) {
 				t.Fatalf("HandleSlashCommand failed: %v", cmdErr)
 			}
 
+			// Give async processing time to complete and retry if needed
+			var processCallCount int
+			for i := 0; i < 10; i++ { // Try up to 10 times with 200ms intervals
+				time.Sleep(200 * time.Millisecond)
+				processCallCount = len(mockAIService.ProcessAndSaveCalls)
+				if processCallCount > 0 {
+					break
+				}
+			}
+
 			// Verify correct journalist type was selected
-			if len(mockAIService.ProcessAndSaveCalls) != 1 {
-				t.Fatalf("Expected 1 processing call, got %d", len(mockAIService.ProcessAndSaveCalls))
+			if processCallCount != 1 {
+				t.Fatalf("Expected 1 processing call, got %d", processCallCount)
 			}
 
 			processCall := mockAIService.ProcessAndSaveCalls[0]
@@ -302,8 +312,6 @@ type ProcessAndSaveCall struct {
 }
 
 func (m *MockAIService) ProcessSubmissionWithUserInfo(ctx context.Context, submission database.Submission, authorName, authorDepartment, journalistType string) (*database.ProcessedArticle, error) {
-	// Log that this method is being called for debugging
-	fmt.Printf("DEBUG: MockAIService.ProcessSubmissionWithUserInfo called with submission ID: %d\n", submission.ID)
 
 	if m.Error != nil {
 		return nil, m.Error
@@ -700,8 +708,10 @@ func TestSlackBot_ProcessAndSaveSubmission_Integration(t *testing.T) {
 		t.Fatalf("Failed to migrate test database: %v", err)
 	}
 
-	// Create newsletter issue for testing
-	issue, err := db.GetOrCreateWeeklyIssue(42, 2025)
+	// Create newsletter issue for testing (use current week to match async processing)
+	now := time.Now()
+	year, week := now.ISOWeek()
+	issue, err := db.GetOrCreateWeeklyIssue(week, year)
 	if err != nil {
 		t.Fatalf("Failed to create newsletter issue: %v", err)
 	}
@@ -741,20 +751,31 @@ func TestSlackBot_ProcessAndSaveSubmission_Integration(t *testing.T) {
 		t.Fatal("Expected response from command handler")
 	}
 
-	// Wait for async processing to complete
-	time.Sleep(200 * time.Millisecond)
-
-	// Verify that ProcessedArticle exists in database with newsletter_issue_id set
-	articles, err := db.GetProcessedArticlesByNewsletterIssue(issue.ID)
-	if err != nil {
-		t.Fatalf("Failed to query processed articles: %v", err)
+	// Wait for async processing to complete and retry if needed
+	var articleCount int
+	for i := 0; i < 10; i++ { // Try up to 10 times with 200ms intervals
+		time.Sleep(200 * time.Millisecond)
+		articles, err := db.GetProcessedArticlesByNewsletterIssue(issue.ID)
+		if err != nil {
+			t.Fatalf("Failed to query processed articles: %v", err)
+		}
+		articleCount = len(articles)
+		if articleCount > 0 {
+			break
+		}
 	}
 
 	// This is the KEY TEST: Articles should now appear in newsletter query
-	if len(articles) != 1 {
-		t.Errorf("Expected 1 processed article in newsletter, got %d", len(articles))
+	if articleCount != 1 {
+		t.Errorf("Expected 1 processed article in newsletter, got %d", articleCount)
 		t.Log("This test will pass once ProcessAndSaveSubmission is implemented")
 		return
+	}
+
+	// Get articles again for detailed verification
+	articles, err := db.GetProcessedArticlesByNewsletterIssue(issue.ID)
+	if err != nil {
+		t.Fatalf("Failed to query processed articles: %v", err)
 	}
 
 	// Verify article details

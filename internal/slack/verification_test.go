@@ -64,9 +64,6 @@ func TestVerifySignature_OldTimestamp(t *testing.T) {
 	// Test: Even with correct signature, old timestamps should be rejected
 	valid := VerifySignature(signingSecret, timestamp, body, expectedSignature)
 
-	// DEBUG: Let's see what we actually got
-	t.Logf("DEBUG: valid=%v, timestamp=%s", valid, timestamp)
-
 	if valid {
 		t.Error("Expected old timestamp to be rejected (prevents replay attacks)")
 	}

@@ -207,20 +207,6 @@ func (db *DB) GetActiveAssignmentByUser(userID string, contentType ContentType) 
 	return assignment, nil
 }
 
-// GetActiveAssignmentsByUser retrieves all assignments for a user in the current week
-func (db *DB) GetActiveAssignmentsByUser(userID string) ([]PersonAssignment, error) {
-	// Get current week's issue
-	now := time.Now()
-	year, week := now.ISOWeek()
-
-	issue, err := db.GetOrCreateWeeklyIssue(week, year)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current week issue: %w", err)
-	}
-
-	return db.GetAssignmentsByUserAndIssue(userID, issue.ID)
-}
-
 // GetAssignmentsByUserAndIssue retrieves all assignments for a user in a specific issue
 func (db *DB) GetAssignmentsByUserAndIssue(userID string, issueID int) ([]PersonAssignment, error) {
 	query := `
@@ -247,13 +233,12 @@ func (db *DB) DeletePersonAssignmentsByUser(userID string, issueID int) error {
 		return fmt.Errorf("failed to delete person assignments: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
+	_, err = result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 
 	// It's ok if no rows were affected - user might not have had assignments
-	_ = rowsAffected
 
 	return nil
 }
@@ -267,13 +252,12 @@ func (db *DB) DeleteAllPersonAssignmentsByUser(userID string) error {
 		return fmt.Errorf("failed to delete all person assignments: %w", err)
 	}
 
-	rowsAffected, err := result.RowsAffected()
+	_, err = result.RowsAffected()
 	if err != nil {
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 
 	// It's ok if no rows were affected - user might not have had assignments
-	_ = rowsAffected
 
 	return nil
 }

@@ -4,9 +4,12 @@
 package slack
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -31,6 +34,7 @@ type QuestionSelector interface {
 	GetQuestionsByCategory(ctx context.Context, category string) ([]database.Question, error)
 	AddQuestion(ctx context.Context, text, category string) (*database.Question, error)
 	GetQuestionByID(ctx context.Context, questionID int) (*database.Question, error)
+	DeleteQuestion(ctx context.Context, questionID int) error
 }
 
 type SubmissionManager interface {
@@ -178,7 +182,17 @@ func (b *slackBot) handleDirectMessageReply(ctx context.Context, event SlackEven
 		return b.SendMessage(ctx, event.Channel, "❌ Assignment lookup not available (database not configured)")
 	}
 
-	assignments, err := b.db.GetActiveAssignmentsByUser(userID)
+	// Get current week's issue
+	now := time.Now()
+	year, week := now.ISOWeek()
+
+	issue, err := b.db.GetOrCreateWeeklyIssue(week, year)
+	if err != nil {
+		slog.Error("Failed to get current week issue", "user", userID, "error", err)
+		return b.SendMessage(ctx, event.Channel, "❌ Failed to look up current week assignments. Please try using the `/pp submit` command instead.")
+	}
+
+	assignments, err := b.db.GetAssignmentsByUserAndIssue(userID, issue.ID)
 	if err != nil {
 		slog.Error("Failed to get active assignments for user", "user", userID, "error", err)
 		return b.SendMessage(ctx, event.Channel, "❌ Failed to look up your assignments. Please try using the `/pp submit` command instead.")
@@ -504,12 +518,34 @@ func (b *slackBot) sendFollowupMessage(responseURL string, message string) {
 		return
 	}
 
-	// Log that we're sending a follow-up (in production this would make actual HTTP request)
-	slog.Info("Sending follow-up message to Slack",
+	// Prepare the message payload for Slack
+	payload := map[string]interface{}{
+		"text":          message,
+		"response_type": "ephemeral",
+	}
+
+	jsonPayload, err := json.Marshal(payload)
+	if err != nil {
+		slog.Error("Failed to marshal follow-up message payload", "error", err)
+		return
+	}
+
+	// Send HTTP POST to the response URL
+	resp, err := http.Post(responseURL, "application/json", bytes.NewBuffer(jsonPayload))
+	if err != nil {
+		slog.Error("Failed to send follow-up message to Slack", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("Unexpected response status from Slack follow-up",
+			"status_code", resp.StatusCode,
+			"status", resp.Status)
+		return
+	}
+
+	slog.Info("Successfully sent follow-up message to Slack",
 		"response_url_provided", true,
 		"message_length", len(message))
-
-	// TODO: Implement actual HTTP POST to responseURL with message payload
-	// For now, just log the message that would be sent
-	slog.Info("Follow-up message content", "message", message)
 }

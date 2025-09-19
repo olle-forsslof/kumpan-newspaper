@@ -78,7 +78,7 @@ type DatabaseInterface interface {
 	CreateProcessedArticle(article database.ProcessedArticle) (int, error)
 	// Assignment-related methods for unified submission system
 	GetActiveAssignmentByUser(userID string, contentType database.ContentType) (*database.PersonAssignment, error)
-	GetActiveAssignmentsByUser(userID string) ([]database.PersonAssignment, error)
+	GetAssignmentsByUserAndIssue(userID string, issueID int) ([]database.PersonAssignment, error)
 	LinkSubmissionToAssignment(assignmentID, submissionID int) error
 	GetPersonAssignmentByID(assignmentID int) (*database.PersonAssignment, error)
 	GetAssignmentBySubmissionID(submissionID int) (*database.PersonAssignment, error)

@@ -533,8 +533,8 @@ func TestDuplicateAssignmentPrevention(t *testing.T) {
 		t.Errorf("Expected error message to contain '%s', got: %s", expectedErrorMsg, err.Error())
 	}
 
-	// Verify only one assignment exists (using current week function)
-	assignments, err := db.GetActiveAssignmentsByUser(userID)
+	// Verify only one assignment exists (using direct function)
+	assignments, err := db.GetAssignmentsByUserAndIssue(userID, issue.ID)
 	if err != nil {
 		t.Fatalf("Failed to get assignments: %v", err)
 	}
@@ -548,7 +548,7 @@ func TestDuplicateAssignmentPrevention(t *testing.T) {
 	}
 }
 
-func TestGetActiveAssignmentsByUser(t *testing.T) {
+func TestGetAssignmentsByUserAndIssue(t *testing.T) {
 	// Create a temporary database for testing
 	tempFile := "/tmp/test_get_assignments.db"
 	defer os.Remove(tempFile)
@@ -566,21 +566,21 @@ func TestGetActiveAssignmentsByUser(t *testing.T) {
 
 	userID := "U123456"
 
+	// Create a weekly issue for current week
+	year, week := time.Now().ISOWeek()
+	issue, err := db.GetOrCreateWeeklyIssue(week, year)
+	if err != nil {
+		t.Fatalf("Failed to create issue: %v", err)
+	}
+
 	// Test with no assignments
-	assignments, err := db.GetActiveAssignmentsByUser(userID)
+	assignments, err := db.GetAssignmentsByUserAndIssue(userID, issue.ID)
 	if err != nil {
 		t.Fatalf("Failed to get assignments: %v", err)
 	}
 
 	if len(assignments) != 0 {
 		t.Errorf("Expected 0 assignments for new user, got %d", len(assignments))
-	}
-
-	// Create a weekly issue for current week
-	year, week := time.Now().ISOWeek()
-	issue, err := db.GetOrCreateWeeklyIssue(week, year)
-	if err != nil {
-		t.Fatalf("Failed to create issue: %v", err)
 	}
 
 	// Create assignment
@@ -597,7 +597,7 @@ func TestGetActiveAssignmentsByUser(t *testing.T) {
 	}
 
 	// Test with one assignment
-	assignments, err = db.GetActiveAssignmentsByUser(userID)
+	assignments, err = db.GetAssignmentsByUserAndIssue(userID, issue.ID)
 	if err != nil {
 		t.Fatalf("Failed to get assignments: %v", err)
 	}

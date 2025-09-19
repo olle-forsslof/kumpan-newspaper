@@ -219,4 +219,8 @@ func (m *MockQuestionManager) AddQuestion(ctx context.Context, text, category st
 	return nil, nil // Not needed for these tests
 }
 
+func (m *MockQuestionManager) DeleteQuestion(ctx context.Context, questionID int) error {
+	return nil // Not needed for these tests
+}
+
 // MockSubmissionManager is defined in auto_processing_test.go
