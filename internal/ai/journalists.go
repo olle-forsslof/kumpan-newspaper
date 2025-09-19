@@ -164,7 +164,7 @@ func GetRequiredJSONFields(journalistType string) []string {
 	case "general":
 		return []string{"headline", "content", "byline"}
 	case "body_mind":
-		return []string{"headline", "response", "signoff", "byline"}
+		return []string{"headline", "question", "response", "signoff"}
 	default:
 		return []string{"headline", "content", "byline"} // Default structure
 	}
