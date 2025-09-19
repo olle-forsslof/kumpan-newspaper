@@ -85,7 +85,7 @@ func NewBotWithWeeklyAutomation(cfg SlackConfig, questionSelector QuestionSelect
 	return &slackBot{
 		client:            nil,
 		config:            cfg,
-		adminHandler:      NewAdminHandlerWithWeeklyAutomation(questionSelector, adminUsers, submissionManager, db, cfg.Token),
+		adminHandler:      NewAdminHandlerWithAI(questionSelector, adminUsers, submissionManager, db, cfg.Token, aiProcessor),
 		submissionManager: submissionManager,
 		aiProcessor:       aiProcessor,
 		questionSelector:  questionSelector,

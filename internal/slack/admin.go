@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ type AdminHandler struct {
 	db                *database.DB                  // Add database access for weekly automation
 	poolManager       *database.BodyMindPoolManager // Body/mind question pool
 	broadcastManager  *BroadcastManager             // Broadcast messaging system
+	aiProcessor       AIProcessor                   // AI processing for rerun functionality
 }
 
 type AdminCommand struct {
@@ -56,6 +58,22 @@ func NewAdminHandlerWithWeeklyAutomation(questionSelector QuestionSelector, auth
 		db:                db,
 		poolManager:       poolManager,
 		broadcastManager:  broadcastManager,
+		aiProcessor:       nil, // Will be set later if available
+	}
+}
+
+// NewAdminHandlerWithAI creates a handler with full automation and AI capabilities
+func NewAdminHandlerWithAI(questionSelector QuestionSelector, authorizedUsers []string, submissionManager SubmissionManager, db *database.DB, slackToken string, aiProcessor AIProcessor) *AdminHandler {
+	poolManager := database.NewBodyMindPoolManager(db)
+	broadcastManager := NewBroadcastManager(slackToken)
+	return &AdminHandler{
+		questionSelector:  questionSelector,
+		authorizedUsers:   authorizedUsers,
+		submissionManager: submissionManager,
+		db:                db,
+		poolManager:       poolManager,
+		broadcastManager:  broadcastManager,
+		aiProcessor:       aiProcessor,
 	}
 }
 
@@ -142,6 +160,14 @@ func (ah *AdminHandler) HandleAdminCommand(ctx context.Context, userID string, c
 		return ah.handleListSubmissions(ctx, cmd.Args)
 	case "remove-submission":
 		return ah.handleRemoveSubmission(ctx, cmd.Args)
+
+	// Article management commands
+	case "list-published-articles":
+		return ah.handleListPublishedArticles(ctx, cmd.Args)
+	case "delete-article":
+		return ah.handleDeleteArticle(ctx, cmd.Args)
+	case "rerun-submission":
+		return ah.handleRerunSubmission(ctx, cmd.Args)
 
 	// Weekly automation commands
 	case "assign-question":
@@ -240,6 +266,11 @@ func (ah *AdminHandler) handleHelp() (*SlashCommandResponse, error) {
      • admin list-submissions [user_id] - Filter submissions by specific user
      • admin remove-submission [@username|user_id] - Remove user's submissions and cleanup assignments
 
+**📰 Article Management:**
+     • admin list-published-articles - View all published articles with IDs for management
+     • admin delete-article article_id - Permanently remove published article from newsletter
+     • admin rerun-submission submission_id - Re-process submission with AI journalist
+
 **📅 Weekly Automation:**
      • admin assign-question [feature|general|body_mind] [@user1 @user2] - Send personalized assignments
      • admin week-status - Comprehensive dashboard: assignments, submissions, completion rates
@@ -258,6 +289,9 @@ func (ah *AdminHandler) handleHelp() (*SlashCommandResponse, error) {
      > admin week-status
      > admin pool-status
      > admin remove-question 42
+     > admin list-published-articles
+     > admin delete-article 15
+     > admin rerun-submission 23
 
 **💡 Pro Tips:**
      • Use @username or user IDs for assign-question
@@ -896,6 +930,230 @@ func (ah *AdminHandler) handleBroadcastBodyMind(ctx context.Context, args []stri
 	// Success - return summary
 	return &SlashCommandResponse{
 		Text:         fmt.Sprintf("✅ *Body/Mind Question Broadcast Complete*\n\n%s", result.GetSummary()),
+		ResponseType: "ephemeral",
+	}, nil
+}
+
+// handleListPublishedArticles lists all published articles with IDs for management
+func (ah *AdminHandler) handleListPublishedArticles(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+	if ah.db == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Database not available",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Get all successful processed articles
+	articles, err := ah.db.GetProcessedArticlesByStatus("success")
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to retrieve articles: %v", err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	if len(articles) == 0 {
+		return &SlashCommandResponse{
+			Text:         "📰 No published articles found.",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Format the articles for display
+	var responseText strings.Builder
+	responseText.WriteString(fmt.Sprintf("📰 *Published Articles* (%d total):\n\n", len(articles)))
+
+	for _, article := range articles {
+		// Extract headline from JSON content
+		headline := "Unknown Title"
+		if content, err := article.ParseJSONContent(); err == nil {
+			if h, ok := content["headline"].(string); ok {
+				headline = h
+			}
+		}
+
+		// Format publish date
+		publishDate := "Unknown"
+		if article.ProcessedAt != nil {
+			publishDate = article.ProcessedAt.Format("Jan 2, 2006")
+		}
+
+		// Show article info
+		responseText.WriteString(fmt.Sprintf("• **ID %d**: %s\n", article.ID, headline))
+		responseText.WriteString(fmt.Sprintf("  └─ %s journalist • %d words • %s\n\n",
+			article.JournalistType, article.WordCount, publishDate))
+	}
+
+	responseText.WriteString("💡 *Use `admin delete-article [ID]` to remove articles*")
+
+	return &SlashCommandResponse{
+		Text:         responseText.String(),
+		ResponseType: "ephemeral",
+	}, nil
+}
+
+// handleDeleteArticle permanently removes a published article from the database
+func (ah *AdminHandler) handleDeleteArticle(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+	if len(args) < 1 {
+		return &SlashCommandResponse{
+			Text:         "Usage: admin delete-article [article_id]",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	if ah.db == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Database not available",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Parse article ID
+	articleID, err := strconv.Atoi(args[0])
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Invalid article ID '%s'. Must be a number.", args[0]),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Get article details before deletion for confirmation
+	article, err := ah.db.GetProcessedArticle(articleID)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Article ID %d not found: %v", articleID, err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Extract headline for confirmation
+	headline := "Unknown Title"
+	if content, err := article.ParseJSONContent(); err == nil {
+		if h, ok := content["headline"].(string); ok {
+			headline = h
+		}
+	}
+
+	// Delete the article
+	err = ah.db.DeleteProcessedArticle(articleID)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to delete article: %v", err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	return &SlashCommandResponse{
+		Text: fmt.Sprintf("✅ *Article Deleted Successfully*\n\n"+
+			"**ID**: %d\n"+
+			"**Title**: %s\n"+
+			"**Type**: %s journalist\n"+
+			"**Words**: %d\n\n"+
+			"The article has been permanently removed from the newsletter database.",
+			articleID, headline, article.JournalistType, article.WordCount),
+		ResponseType: "ephemeral",
+	}, nil
+}
+
+// handleRerunSubmission re-processes a submission with AI journalist
+func (ah *AdminHandler) handleRerunSubmission(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+	if len(args) < 1 {
+		return &SlashCommandResponse{
+			Text:         "Usage: admin rerun-submission [submission_id]",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	if ah.db == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Database not available",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	if ah.aiProcessor == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ AI processor not available",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Parse submission ID
+	submissionID, err := strconv.Atoi(args[0])
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Invalid submission ID '%s'. Must be a number.", args[0]),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Get original submission
+	submission, err := ah.db.GetSubmission(submissionID)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Submission ID %d not found: %v", submissionID, err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	// Get user info for processing (use fallback values for admin rerun)
+	authorName := "Team Member"
+	authorDepartment := "Unknown"
+
+	// Note: For admin rerun, we use fallback user info.
+	// Could be enhanced later to lookup user details if needed.
+
+	// Determine journalist type (default to general for news submissions)
+	journalistType := "general"
+	if submission.QuestionID != nil {
+		// Could enhance this to determine type from question category
+		// For now, default to general
+		journalistType = "general"
+	}
+
+	// Get current newsletter issue for assignment
+	var newsletterIssueID *int
+	now := time.Now()
+	year, week := now.ISOWeek()
+
+	issue, err := ah.db.GetOrCreateWeeklyIssue(week, year)
+	if err == nil {
+		newsletterIssueID = &issue.ID
+	}
+
+	// Launch async reprocessing
+	go func() {
+		dbPtr := ah.db.GetUnderlyingDB()
+		if dbPtr == nil {
+			slog.Error("Admin rerun: underlying DB not available", "submission_id", submissionID)
+			return
+		}
+
+		err := ah.aiProcessor.ProcessAndSaveSubmission(
+			context.Background(),
+			dbPtr,
+			*submission,
+			authorName,
+			authorDepartment,
+			journalistType,
+			newsletterIssueID,
+		)
+
+		if err != nil {
+			slog.Error("Admin rerun failed", "submission_id", submissionID, "error", err)
+		} else {
+			slog.Info("Admin rerun completed successfully", "submission_id", submissionID, "journalist_type", journalistType)
+		}
+	}()
+
+	return &SlashCommandResponse{
+		Text: fmt.Sprintf("🤖 *Reprocessing Submission*\n\n"+
+			"**Submission ID**: %d\n"+
+			"**Author**: %s (%s)\n"+
+			"**Content**: %.100s...\n"+
+			"**Journalist**: %s\n\n"+
+			"✅ Reprocessing started in the background. The new article will appear in the current week's newsletter when complete.",
+			submissionID, authorName, authorDepartment, submission.Content, journalistType),
 		ResponseType: "ephemeral",
 	}, nil
 }

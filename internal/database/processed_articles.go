@@ -366,3 +366,24 @@ func (db *DB) GetProcessedArticlesByNewsletterIssue(issueID int) ([]ProcessedArt
 
 	return articles, nil
 }
+
+// DeleteProcessedArticle permanently removes a processed article from the database
+func (db *DB) DeleteProcessedArticle(id int) error {
+	query := `DELETE FROM processed_articles WHERE id = ?`
+	
+	result, err := db.Exec(query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete processed article: %w", err)
+	}
+	
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	
+	if rowsAffected == 0 {
+		return fmt.Errorf("processed article with ID %d not found", id)
+	}
+	
+	return nil
+}
