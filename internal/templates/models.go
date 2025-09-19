@@ -61,11 +61,9 @@ type GeneralContent struct {
 
 // BodyMindContent represents structured content for wellness articles
 type BodyMindContent struct {
-	Headline string   `json:"headline"`
-	Byline   string   `json:"byline"`
-	Question string   `json:"question"`
-	Tips     []string `json:"tips"`
-	Takeaway string   `json:"takeaway"`
+	Headline string `json:"headline"`
+	Response string `json:"response"`
+	Question string `json:"question"`
 }
 
 // TemplateConfig holds configuration for template rendering

@@ -13,23 +13,23 @@
     </div>
     {{end}}
     
-    {{if .tips}}
-    <div class="bodymind-tips">
-        <h4>Tips & Insights:</h4>
-        <ul class="tips-list">
-            {{range .tips}}
-            <li>{{safeHTML .}}</li>
-            {{end}}
-        </ul>
-    </div>
-    {{end}}
+    <!-- {{if .tips}} -->
+    <!-- <div class="bodymind-tips"> -->
+    <!--     <h4>Tips & Insights:</h4> -->
+    <!--     <ul class="tips-list"> -->
+    <!--         {{range .tips}} -->
+    <!--         <li>{{safeHTML .}}</li> -->
+    <!--         {{end}} -->
+    <!--     </ul> -->
+    <!-- </div> -->
+    <!-- {{end}} -->
     
-    {{if .takeaway}}
-    <div class="bodymind-takeaway">
-        <div class="takeaway-icon">✨</div>
-        <p class="takeaway-text"><strong>Key Takeaway:</strong> {{safeHTML .takeaway}}</p>
-    </div>
-    {{end}}
+    <!-- {{if .takeaway}} -->
+    <!-- <div class="bodymind-takeaway"> -->
+    <!--     <div class="takeaway-icon">✨</div> -->
+    <!--     <p class="takeaway-text"><strong>Key Takeaway:</strong> {{safeHTML .takeaway}}</p> -->
+    <!-- </div> -->
+    <!-- {{end}} -->
     {{end}}
 </div>
 {{end}}

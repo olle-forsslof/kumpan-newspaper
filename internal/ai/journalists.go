@@ -202,7 +202,7 @@ func getJSONStructureForJournalist(journalistType string) string {
   "headline": "Catchy, engaging headline",
   "lead": "Strong opening paragraph that hooks the reader",
   "body": "Main article content with human interest angle",
-  "byline": "Erik Lindqvist, Feature Writer"
+  "byline": "Kimchi Kawai"
 }`
 	case "interview":
 		return `{
@@ -212,20 +212,20 @@ func getJSONStructureForJournalist(journalistType string) string {
     {"q": "Question text", "a": "Answer text"},
     {"q": "Follow-up question", "a": "Response"}
   ],
-  "byline": "Anna Bergström, Interview Specialist"
+  "byline": "Kramer Kent"
 }`
 	case "general":
 		return `{
   "headline": "Clear, informative headline",
   "content": "Straightforward news content",
-  "byline": "Lars Petersson, Staff Reporter"
+  "byline": "Koco Kai"
 }`
 	case "body_mind":
 		return `{
-  "headline": "Question or topic headline",
+  "headline": "Kumpanens kropp & knopp",
+  "question": "Anonymous submitted question",
   "response": "Advice response content", 
   "signoff": "Snarky but encouraging closing",
-  "byline": "Dr. Astrid Holmberg, Body & Mind Columnist"
 }`
 	default:
 		return `{
