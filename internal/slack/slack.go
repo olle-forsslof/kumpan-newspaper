@@ -261,29 +261,37 @@ func contentTypeToJournalistType(contentType database.ContentType) string {
 
 func (b *slackBot) handleRegularHelp() *SlashCommandResponse {
 	help := "*Newsletter Bot Help*\n\n" +
-		"This bot helps manage daily/weekly newsletter questions and collect news stories.\n\n" +
-		"*Submission Methods:*\n" +
+		"This bot helps manage weekly newsletter content collection and AI-powered article generation.\n\n" +
+		"*🚀 Submission Methods:*\n" +
 		"• **Slash Command**: `/pp submit [category] \"your content\"`\n" +
-		"• **Reply to Bot**: Simply reply to newsletter assignment messages\n\n" +
-		"*Content Categories:*\n" +
-		"• `feature` - Major features, launches, or announcements\n" +
-		"• `general` - Regular news, updates, or interesting links\n" +
-		"• `interview` - Q&A format content or interviews\n" +
-		"• `body_mind` - Wellness content (submitted anonymously)\n\n" +
-		"*Command Examples:*\n" +
-		"• `/pp submit feature \"Our team launched the new analytics dashboard!\"`\n" +
-		"• `/pp submit general \"Found this great article on Go performance\"`\n" +
-		"• `/pp submit body_mind \"How do you manage stress during deployments?\"`\n" +
-		"• `/pp submit \"Check out this cool library\"` (defaults to general)\n\n" +
-		"*Assignment Workflow:*\n" +
-		"• Receive assignment DM with specific question and category\n" +
-		"• Reply directly to the bot OR use the provided slash command\n" +
-		"• One assignment per person per week\n\n" +
-		"*Available Commands:*\n" +
-		"• `/pp help` - Show this help message\n" +
+		"• **Reply to Bot**: Simply reply to weekly assignment DMs\n" +
+		"• **Auto-Processing**: All submissions are processed by AI journalists\n\n" +
+		"*📝 Content Categories:*\n" +
+		"• `feature` - Major features, launches, or product announcements\n" +
+		"• `general` - Regular news, updates, interesting links, or team updates\n" +
+		"• `interview` - Q&A format content, interviews, or conversation pieces\n" +
+		"• `body_mind` - Wellness content (submitted anonymously for privacy)\n\n" +
+		"*💡 Command Examples:*\n" +
+		"• `/pp submit feature \"Our team launched the new analytics dashboard with real-time insights!\"`\n" +
+		"• `/pp submit general \"Found this excellent article on Go performance optimization\"`\n" +
+		"• `/pp submit body_mind \"What techniques help you manage stress during deployment weeks?\"`\n" +
+		"• `/pp submit \"Check out this cool open-source library\"` (defaults to general)\n\n" +
+		"*📅 Weekly Assignment Workflow:*\n" +
+		"• Receive personalized assignment DM with specific question and category\n" +
+		"• Reply directly to the bot OR use the slash command format provided\n" +
+		"• Submissions are automatically processed by specialized AI journalists\n" +
+		"• Content appears in the weekly newsletter with proper formatting\n" +
+		"• One assignment per person per week (assigned Monday, newsletter Friday)\n\n" +
+		"*🤖 AI Processing Features:*\n" +
+		"• **Smart Journalist Assignment**: Content routed to appropriate specialist\n" +
+		"• **Automatic Formatting**: Professional newsletter-ready articles\n" +
+		"• **User Attribution**: Your name and department included (except body_mind)\n" +
+		"• **Real-time Feedback**: Instant confirmation when processing completes\n\n" +
+		"*⌨️ Available Commands:*\n" +
+		"• `/pp help` - Show this comprehensive help message\n" +
 		"• `/pp admin help` - Show admin commands (authorized users only)\n\n" +
-		"*For Admins:*\n" +
-		"Admin users can manage newsletter questions, view submissions, and configure the bot."
+		"*👥 For Admins:*\n" +
+		"Admin users can manage questions, view submissions, assign weekly content, check pool status, and broadcast requests."
 
 	return &SlashCommandResponse{
 		Text:         help,

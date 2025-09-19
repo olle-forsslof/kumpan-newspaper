@@ -227,35 +227,46 @@ func (ah *AdminHandler) handleRemoveQuestion(ctx context.Context, args []string)
 }
 
 func (ah *AdminHandler) handleHelp() (*SlashCommandResponse, error) {
-	help := `*Newsletter Admin Commands*:
+	help := `*🔧 Newsletter Admin Commands*:
 
-**Question Management:**
-     • admin add-question "Question text" category
-     • admin list-questions category
-     • admin test-rotation category
-     • admin remove-question question_id
+**📝 Question Management:**
+     • admin add-question "Question text" category - Add new question to rotation
+     • admin list-questions category - View questions by category (work, fun, tech, etc.)
+     • admin test-rotation category - Preview next question in rotation
+     • admin remove-question question_id - Permanently delete a question
 
-**Submission Management:**
-     • admin list-submissions - Show all news submissions
-     • admin list-submissions [user_id] - Show submissions by specific user
-     • admin remove-submission [@username|user_id] - Remove user's submissions
+**📊 Submission Management:**
+     • admin list-submissions - Show all recent news submissions with details
+     • admin list-submissions [user_id] - Filter submissions by specific user
+     • admin remove-submission [@username|user_id] - Remove user's submissions and cleanup assignments
 
-**Weekly Automation:**
-     • admin assign-question [feature|general|body_mind] [@user1 @user2] - Send questions to users
-     • admin week-status - Current week dashboard with assignments and status
-     • admin pool-status - Anonymous body/mind question pool levels and activity
-     • admin broadcast-bodymind - Send wellness question request to all users
+**📅 Weekly Automation:**
+     • admin assign-question [feature|general|body_mind] [@user1 @user2] - Send personalized assignments
+     • admin week-status - Comprehensive dashboard: assignments, submissions, completion rates
+     • admin pool-status - Body/mind question pool levels, usage analytics, low-pool alerts
+     • admin broadcast-bodymind - Send wellness question request to all workspace users
+
+**🎯 Content Categories:**
+     • feature - Product launches, major announcements, team achievements
+     • general - News updates, interesting articles, team updates, general content
+     • body_mind - Wellness questions (anonymous pool for privacy)
+
+**📋 Usage Examples:**
+     > admin add-question "What innovative solution did your team implement this week?" tech
+     > admin list-questions work
+     > admin assign-question feature @john.doe @jane.smith
+     > admin week-status
+     > admin pool-status
+     > admin remove-question 42
+
+**💡 Pro Tips:**
+     • Use @username or user IDs for assign-question
+     • Week status shows completion rates and helps track engagement
+     • Pool status alerts when body/mind questions run low
+     • Remove-submission also cleans up weekly assignments automatically
 
 **Other:**
-     • admin help - Show this help message
-
-     Examples:
-     > admin add-question "What did you accomplish this week?" work
-     > admin list-questions fun
-     > admin list-submissions
-     > admin assign-question feature @john.doe
-     > admin week-status
-     > admin pool-status`
+     • admin help - Show this help message`
 
 	return &SlashCommandResponse{
 		Text:         help,
