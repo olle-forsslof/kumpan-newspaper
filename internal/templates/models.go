@@ -64,6 +64,7 @@ type BodyMindContent struct {
 	Headline string `json:"headline"`
 	Response string `json:"response"`
 	Question string `json:"question"`
+	Byline   string `json:"byline"`
 }
 
 // TemplateConfig holds configuration for template rendering
