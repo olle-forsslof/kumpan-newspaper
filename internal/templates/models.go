@@ -75,3 +75,10 @@ type TemplateConfig struct {
 	NewsletterName string `json:"newsletter_name"`
 	Theme          string `json:"theme"` // "classic", "modern", etc.
 }
+
+// ArchivePage represents data for the archive page
+type ArchivePage struct {
+	Issues      []database.WeeklyNewsletterIssue
+	GeneratedAt time.Time
+	CompanyName string
+}

@@ -57,6 +57,7 @@ func (s *Server) SetupRoutes() {
 	if s.templateService != nil {
 		s.mux.HandleFunc("/newsletter", s.currentNewsletterHandler)
 		s.mux.HandleFunc("/newsletter/", s.newsletterHandler)
+		s.mux.HandleFunc("/archive", s.archiveHandler)
 	}
 
 	if s.slack != nil {
@@ -194,6 +195,34 @@ func (s *Server) newsletterHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.renderNewsletter(w, r, issue)
+}
+
+// archiveHandler serves the archive page listing published newsletter issues
+func (s *Server) archiveHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	issues, err := s.db.GetPublishedNewsletterIssues()
+	if err != nil {
+		s.logger.Error("Failed to get published newsletter issues for archive", "error", err)
+		http.Error(w, "Failed to load archive", http.StatusInternalServerError)
+		return
+	}
+
+	html, err := s.templateService.RenderArchive(r.Context(), issues)
+	if err != nil {
+		s.logger.Error("Failed to render archive template", "error", err)
+		http.Error(w, "Failed to render archive", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(html))
+
+	s.logger.Info("Archive page rendered successfully", "issues_count", len(issues))
 }
 
 // renderNewsletter renders a newsletter issue with its articles

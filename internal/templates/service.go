@@ -74,6 +74,22 @@ func (ts *TemplateService) RenderNewsletter(ctx context.Context, issue *database
 	return buf.String(), nil
 }
 
+// RenderArchive renders the archive page with all newsletter issues
+func (ts *TemplateService) RenderArchive(ctx context.Context, issues []database.WeeklyNewsletterIssue) (string, error) {
+	page := &ArchivePage{
+		Issues:      issues,
+		GeneratedAt: time.Now(),
+		CompanyName: ts.config.CompanyName,
+	}
+
+	var buf bytes.Buffer
+	if err := ts.templates.ExecuteTemplate(&buf, "archive.html", page); err != nil {
+		return "", fmt.Errorf("failed to execute archive template: %w", err)
+	}
+
+	return buf.String(), nil
+}
+
 // RenderArticle renders a single article with appropriate template
 func (ts *TemplateService) RenderArticle(ctx context.Context, article database.ProcessedArticle) (string, error) {
 	// Prepare article data

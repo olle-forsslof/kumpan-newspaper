@@ -297,3 +297,118 @@ func TestTemplateService_Configuration(t *testing.T) {
 		t.Error("Custom static URL not set")
 	}
 }
+
+func TestTemplateService_RenderArchive(t *testing.T) {
+	service, err := NewTemplateService(nil)
+	if err != nil {
+		t.Fatalf("Failed to create template service: %v", err)
+	}
+
+	t.Run("Archive with multiple issues", func(t *testing.T) {
+		issues := []database.WeeklyNewsletterIssue{
+			{
+				ID:              1,
+				WeekNumber:      40,
+				Year:            2025,
+				Title:           "Week 40 Newsletter - 2025",
+				Status:          database.IssueStatusPublished,
+				PublicationDate: time.Date(2025, 10, 2, 9, 30, 0, 0, time.UTC),
+				PublishedAt:     &[]time.Time{time.Date(2025, 10, 2, 10, 0, 0, 0, time.UTC)}[0],
+				CreatedAt:       time.Now(),
+			},
+			{
+				ID:              2,
+				WeekNumber:      39,
+				Year:            2025,
+				Title:           "Week 39 Newsletter - 2025",
+				Status:          database.IssueStatusPublished,
+				PublicationDate: time.Date(2025, 9, 25, 9, 30, 0, 0, time.UTC),
+				PublishedAt:     &[]time.Time{time.Date(2025, 9, 25, 10, 0, 0, 0, time.UTC)}[0],
+				CreatedAt:       time.Now(),
+			},
+		}
+
+		html, err := service.RenderArchive(context.Background(), issues)
+		if err != nil {
+			t.Fatalf("Failed to render archive: %v", err)
+		}
+
+		if !strings.Contains(html, "Newsletter Archive") {
+			t.Error("Archive page title not found")
+		}
+
+		if !strings.Contains(html, "Week 40 Newsletter - 2025") {
+			t.Error("First issue title not found")
+		}
+
+		if !strings.Contains(html, "Week 39 Newsletter - 2025") {
+			t.Error("Second issue title not found")
+		}
+
+		if !strings.Contains(html, "/newsletter/40/2025") {
+			t.Error("Link to week 40 newsletter not found")
+		}
+
+		if !strings.Contains(html, "/newsletter/39/2025") {
+			t.Error("Link to week 39 newsletter not found")
+		}
+
+		if !strings.Contains(html, "Week 40, 2025") {
+			t.Error("Week/year formatting not found for issue 1")
+		}
+
+		if !strings.Contains(html, "/static/css/newsletter.css") {
+			t.Error("CSS stylesheet link not found")
+		}
+	})
+
+	t.Run("Archive with empty issues list", func(t *testing.T) {
+		html, err := service.RenderArchive(context.Background(), []database.WeeklyNewsletterIssue{})
+		if err != nil {
+			t.Fatalf("Failed to render empty archive: %v", err)
+		}
+
+		if !strings.Contains(html, "No newsletters yet") {
+			t.Error("Empty state message not found")
+		}
+
+		if !strings.Contains(html, "Newsletter Archive") {
+			t.Error("Archive page title not found in empty state")
+		}
+	})
+
+	t.Run("Archive HTML structure", func(t *testing.T) {
+		issues := []database.WeeklyNewsletterIssue{
+			{
+				ID:              3,
+				WeekNumber:      38,
+				Year:            2025,
+				Title:           "Week 38 Newsletter - 2025",
+				Status:          database.IssueStatusPublished,
+				PublicationDate: time.Date(2025, 9, 18, 9, 30, 0, 0, time.UTC),
+				CreatedAt:       time.Now(),
+			},
+		}
+
+		html, err := service.RenderArchive(context.Background(), issues)
+		if err != nil {
+			t.Fatalf("Failed to render archive: %v", err)
+		}
+
+		if !strings.Contains(html, "<!DOCTYPE html>") {
+			t.Error("HTML doctype not found")
+		}
+
+		if !strings.Contains(html, `<html lang="en">`) {
+			t.Error("HTML lang attribute not found")
+		}
+
+		if !strings.Contains(html, "viewport") {
+			t.Error("Viewport meta tag not found")
+		}
+
+		if !strings.Contains(html, "archive-grid") || !strings.Contains(html, "archive-item") {
+			t.Error("Archive-specific CSS classes not found")
+		}
+	})
+}

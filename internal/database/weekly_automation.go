@@ -598,3 +598,70 @@ func getCurrentWeekAndYear() (int, int) {
 	year, week := now.ISOWeek()
 	return week, year
 }
+
+// GetPublishedNewsletterIssues retrieves published newsletter issues ordered by publication date descending
+func (db *DB) GetPublishedNewsletterIssues() ([]WeeklyNewsletterIssue, error) {
+	query := `
+		SELECT id, week_number, year, title, content, status, publication_date, published_at, created_at
+		FROM newsletter_issues 
+		WHERE status = ? OR published_at IS NOT NULL
+		ORDER BY year DESC, week_number DESC`
+
+	rows, err := db.Query(query, IssueStatusPublished)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query published newsletter issues: %w", err)
+	}
+	defer rows.Close()
+
+	return db.scanWeeklyNewsletterIssues(rows)
+}
+
+// scanWeeklyNewsletterIssues scans multiple rows into WeeklyNewsletterIssue structs
+func (db *DB) scanWeeklyNewsletterIssues(rows *sql.Rows) ([]WeeklyNewsletterIssue, error) {
+	var issues []WeeklyNewsletterIssue
+	for rows.Next() {
+		var issue WeeklyNewsletterIssue
+		var publishedAt sql.NullTime
+		var weekNumber sql.NullInt64
+		var year sql.NullInt64
+		var status sql.NullString
+
+		err := rows.Scan(
+			&issue.ID,
+			&weekNumber,
+			&year,
+			&issue.Title,
+			&issue.Content,
+			&status,
+			&issue.PublicationDate,
+			&publishedAt,
+			&issue.CreatedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan newsletter issue: %w", err)
+		}
+
+		if weekNumber.Valid {
+			issue.WeekNumber = int(weekNumber.Int64)
+		}
+		if year.Valid {
+			issue.Year = int(year.Int64)
+		}
+		if status.Valid {
+			issue.Status = NewsletterIssueStatus(status.String)
+		} else {
+			issue.Status = IssueStatusDraft
+		}
+		if publishedAt.Valid {
+			issue.PublishedAt = &publishedAt.Time
+		}
+
+		issues = append(issues, issue)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over newsletter issues: %w", err)
+	}
+
+	return issues, nil
+}

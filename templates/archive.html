@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Newsletter Archive - {{.CompanyName}}</title>
+    <link rel="stylesheet" href="/static/css/newsletter.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Source+Sans+Pro:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="newsletter-container">
+        <header class="newsletter-header">
+            <div class="masthead">
+                <h1 class="newsletter-title">Newsletter Archive</h1>
+                <p class="archive-subtitle">Browse all previous editions</p>
+            </div>
+            <div class="header-divider"></div>
+        </header>
+
+        <main class="archive-content">
+            {{if .Issues}}
+                <div class="archive-grid">
+                    {{range .Issues}}
+                        <article class="archive-item">
+                            <div class="archive-item-header">
+                                <h2 class="archive-item-title">
+                                    <a href="/newsletter/{{.WeekNumber}}/{{.Year}}">
+                                        {{.Title}}
+                                    </a>
+                                </h2>
+                                <div class="archive-item-meta">
+                                    <span class="archive-week">{{formatWeek .WeekNumber .Year}}</span>
+                                    <span class="archive-date">{{formatDate .PublicationDate}}</span>
+                                </div>
+                            </div>
+                            {{if .PublishedAt}}
+                                <p class="archive-item-publish-date">
+                                    Published on {{formatDate .PublishedAt}}
+                                </p>
+                            {{end}}
+                        </article>
+                    {{end}}
+                </div>
+            {{else}}
+                <div class="no-content">
+                    <h2>No newsletters yet</h2>
+                    <p>Check back soon for published editions.</p>
+                </div>
+            {{end}}
+        </main>
+
+        <footer class="newsletter-footer">
+            <div class="footer-divider"></div>
+            <div class="footer-content">
+                <p class="generated-info">Page generated on {{formatDate .GeneratedAt}} at {{formatTime .GeneratedAt}}</p>
+                <p><a href="/newsletter">View current issue</a></p>
+            </div>
+        </footer>
+    </div>
+</body>
+</html>

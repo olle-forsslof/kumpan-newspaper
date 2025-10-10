@@ -679,3 +679,143 @@ func TestScanPersonAssignment(t *testing.T) {
 		t.Errorf("Expected feature assignment, got %s", assignments[0].ContentType)
 	}
 }
+
+func TestGetPublishedNewsletterIssues(t *testing.T) {
+	tempFile := "/tmp/test_published_newsletter_issues.db"
+	defer os.Remove(tempFile)
+
+	db, err := NewSimple(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+
+	t.Run("Empty database", func(t *testing.T) {
+		issues, err := db.GetPublishedNewsletterIssues()
+		if err != nil {
+			t.Fatalf("Failed to get published issues: %v", err)
+		}
+
+		if len(issues) != 0 {
+			t.Errorf("Expected 0 issues in empty database, got %d", len(issues))
+		}
+	})
+
+	t.Run("Only draft issues", func(t *testing.T) {
+		_, err := db.CreateWeeklyNewsletterIssue(1, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create draft issue: %v", err)
+		}
+
+		issues, err := db.GetPublishedNewsletterIssues()
+		if err != nil {
+			t.Fatalf("Failed to get published issues: %v", err)
+		}
+
+		if len(issues) != 0 {
+			t.Errorf("Expected 0 published issues, got %d", len(issues))
+		}
+	})
+
+	t.Run("Published issues", func(t *testing.T) {
+		issue1, err := db.CreateWeeklyNewsletterIssue(2, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create issue 1: %v", err)
+		}
+		publishTime := time.Now()
+		_, err = db.Exec("UPDATE newsletter_issues SET status = ?, published_at = ? WHERE id = ?",
+			IssueStatusPublished, publishTime, issue1.ID)
+		if err != nil {
+			t.Fatalf("Failed to update issue 1 status: %v", err)
+		}
+
+		issue2, err := db.CreateWeeklyNewsletterIssue(3, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create issue 2: %v", err)
+		}
+		_, err = db.Exec("UPDATE newsletter_issues SET status = ?, published_at = ? WHERE id = ?",
+			IssueStatusPublished, publishTime.Add(7*24*time.Hour), issue2.ID)
+		if err != nil {
+			t.Fatalf("Failed to update issue 2 status: %v", err)
+		}
+
+		issues, err := db.GetPublishedNewsletterIssues()
+		if err != nil {
+			t.Fatalf("Failed to get published issues: %v", err)
+		}
+
+		if len(issues) != 2 {
+			t.Errorf("Expected 2 published issues, got %d", len(issues))
+		}
+	})
+
+	t.Run("Ordering - newest first", func(t *testing.T) {
+		_, err := db.CreateWeeklyNewsletterIssue(10, 2024)
+		if err != nil {
+			t.Fatalf("Failed to create old issue: %v", err)
+		}
+		_, err = db.Exec("UPDATE newsletter_issues SET status = ? WHERE week_number = 10", IssueStatusPublished)
+		if err != nil {
+			t.Fatalf("Failed to update old issue status: %v", err)
+		}
+
+		_, err = db.CreateWeeklyNewsletterIssue(5, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create newer issue: %v", err)
+		}
+		_, err = db.Exec("UPDATE newsletter_issues SET status = ? WHERE week_number = 5", IssueStatusPublished)
+		if err != nil {
+			t.Fatalf("Failed to update newer issue status: %v", err)
+		}
+
+		issues, err := db.GetPublishedNewsletterIssues()
+		if err != nil {
+			t.Fatalf("Failed to get published issues: %v", err)
+		}
+
+		if len(issues) < 2 {
+			t.Fatalf("Expected at least 2 issues, got %d", len(issues))
+		}
+
+		if issues[0].Year < issues[1].Year {
+			t.Errorf("Issues not ordered by year descending: first year %d, second year %d",
+				issues[0].Year, issues[1].Year)
+		}
+
+		if issues[0].Year == issues[1].Year && issues[0].WeekNumber < issues[1].WeekNumber {
+			t.Errorf("Issues not ordered by week descending for same year: first week %d, second week %d",
+				issues[0].WeekNumber, issues[1].WeekNumber)
+		}
+	})
+
+	t.Run("Mixed draft and published", func(t *testing.T) {
+		_, err := db.CreateWeeklyNewsletterIssue(20, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create draft issue: %v", err)
+		}
+
+		_, err = db.CreateWeeklyNewsletterIssue(21, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create published issue: %v", err)
+		}
+		_, err = db.Exec("UPDATE newsletter_issues SET status = ? WHERE week_number = 21", IssueStatusPublished)
+		if err != nil {
+			t.Fatalf("Failed to update issue status: %v", err)
+		}
+
+		issues, err := db.GetPublishedNewsletterIssues()
+		if err != nil {
+			t.Fatalf("Failed to get published issues: %v", err)
+		}
+
+		for _, issue := range issues {
+			if issue.WeekNumber == 20 {
+				t.Error("Draft issue (week 20) should not be in published issues list")
+			}
+		}
+	})
+}
