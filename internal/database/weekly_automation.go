@@ -665,3 +665,111 @@ func (db *DB) scanWeeklyNewsletterIssues(rows *sql.Rows) ([]WeeklyNewsletterIssu
 
 	return issues, nil
 }
+
+// PublishNewsletterIssue marks a newsletter issue as published
+func (db *DB) PublishNewsletterIssue(issueID int) error {
+	issue, err := db.GetWeeklyNewsletterIssue(issueID)
+	if err != nil {
+		return fmt.Errorf("failed to get newsletter issue: %w", err)
+	}
+
+	if issue.Status == IssueStatusPublished {
+		return fmt.Errorf("newsletter issue %d is already published", issueID)
+	}
+
+	query := `
+		UPDATE newsletter_issues 
+		SET status = ?, published_at = ?
+		WHERE id = ?`
+
+	publishTime := time.Now()
+	result, err := db.Exec(query, IssueStatusPublished, publishTime, issueID)
+	if err != nil {
+		return fmt.Errorf("failed to publish newsletter issue: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("newsletter issue with ID %d not found", issueID)
+	}
+
+	return nil
+}
+
+// GetMostRecentPublishedIssue retrieves the most recently published newsletter issue
+func (db *DB) GetMostRecentPublishedIssue() (*WeeklyNewsletterIssue, error) {
+	query := `
+		SELECT id, week_number, year, title, content, status, publication_date, published_at, created_at
+		FROM newsletter_issues 
+		WHERE status = ? AND published_at IS NOT NULL
+		ORDER BY year DESC, week_number DESC
+		LIMIT 1`
+
+	row := db.QueryRow(query, IssueStatusPublished)
+
+	var issue WeeklyNewsletterIssue
+	var publishedAt sql.NullTime
+	var weekNumber sql.NullInt64
+	var year sql.NullInt64
+	var status sql.NullString
+
+	err := row.Scan(
+		&issue.ID,
+		&weekNumber,
+		&year,
+		&issue.Title,
+		&issue.Content,
+		&status,
+		&issue.PublicationDate,
+		&publishedAt,
+		&issue.CreatedAt,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("no published newsletter issues found")
+		}
+		return nil, fmt.Errorf("failed to get most recent published issue: %w", err)
+	}
+
+	if weekNumber.Valid {
+		issue.WeekNumber = int(weekNumber.Int64)
+	}
+	if year.Valid {
+		issue.Year = int(year.Int64)
+	}
+	if status.Valid {
+		issue.Status = NewsletterIssueStatus(status.String)
+	} else {
+		issue.Status = IssueStatusDraft
+	}
+	if publishedAt.Valid {
+		issue.PublishedAt = &publishedAt.Time
+	}
+
+	return &issue, nil
+}
+
+// GetCurrentWeekIssue retrieves the current week's newsletter issue without creating it
+func (db *DB) GetCurrentWeekIssue() (*WeeklyNewsletterIssue, error) {
+	week, year := getCurrentWeekAndYear()
+
+	query := `
+		SELECT id FROM newsletter_issues 
+		WHERE week_number = ? AND year = ?
+		LIMIT 1`
+
+	var issueID int
+	err := db.QueryRow(query, week, year).Scan(&issueID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("no newsletter issue found for week %d, year %d", week, year)
+		}
+		return nil, fmt.Errorf("failed to get current week issue: %w", err)
+	}
+
+	return db.GetWeeklyNewsletterIssue(issueID)
+}

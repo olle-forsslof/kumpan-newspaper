@@ -26,7 +26,7 @@
                         <article class="archive-item">
                             <div class="archive-item-header">
                                 <h2 class="archive-item-title">
-                                    <a href="/newsletter/{{.WeekNumber}}/{{.Year}}">
+                                    <a href="/{{.WeekNumber}}/{{.Year}}">
                                         {{.Title}}
                                     </a>
                                 </h2>
@@ -55,7 +55,7 @@
             <div class="footer-divider"></div>
             <div class="footer-content">
                 <p class="generated-info">Page generated on {{formatDate .GeneratedAt}} at {{formatTime .GeneratedAt}}</p>
-                <p><a href="/newsletter">View current issue</a></p>
+                <p><a href="/">View current issue</a></p>
             </div>
         </footer>
     </div>

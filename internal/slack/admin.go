@@ -179,6 +179,10 @@ func (ah *AdminHandler) HandleAdminCommand(ctx context.Context, userID string, c
 	case "broadcast-bodymind":
 		return ah.handleBroadcastBodyMind(ctx, cmd.Args)
 
+	// Publishing commands
+	case "publish-newsletter":
+		return ah.handlePublishNewsletter(ctx, cmd.Args)
+
 	default:
 		return ah.handleHelp()
 	}
@@ -276,6 +280,10 @@ func (ah *AdminHandler) handleHelp() (*SlashCommandResponse, error) {
      • admin week-status - Comprehensive dashboard: assignments, submissions, completion rates
      • admin pool-status - Body/mind question pool levels, usage analytics, low-pool alerts
      • admin broadcast-bodymind - Send wellness question request to all workspace users
+
+**📤 Publishing:**
+     • admin publish-newsletter - Publish current week's newsletter
+     • admin publish-newsletter [week] [year] - Publish specific week's newsletter
 
 **🎯 Content Categories:**
      • feature - Product launches, major announcements, team achievements
@@ -930,6 +938,81 @@ func (ah *AdminHandler) handleBroadcastBodyMind(ctx context.Context, args []stri
 	// Success - return summary
 	return &SlashCommandResponse{
 		Text:         fmt.Sprintf("✅ *Body/Mind Question Broadcast Complete*\n\n%s", result.GetSummary()),
+		ResponseType: "ephemeral",
+	}, nil
+}
+
+// handlePublishNewsletter manually publishes a newsletter issue
+func (ah *AdminHandler) handlePublishNewsletter(ctx context.Context, args []string) (*SlashCommandResponse, error) {
+	if ah.db == nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Database not available",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	if len(args) == 0 {
+		issue, err := ah.db.GetCurrentWeekIssue()
+		if err != nil {
+			return &SlashCommandResponse{
+				Text:         fmt.Sprintf("❌ Failed to get current week issue: %v", err),
+				ResponseType: "ephemeral",
+			}, nil
+		}
+
+		if err := ah.db.PublishNewsletterIssue(issue.ID); err != nil {
+			return &SlashCommandResponse{
+				Text:         fmt.Sprintf("❌ Failed to publish current week newsletter: %v", err),
+				ResponseType: "ephemeral",
+			}, nil
+		}
+
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("✅ Published current week newsletter (Week %d, %d)", issue.WeekNumber, issue.Year),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	if len(args) != 2 {
+		return &SlashCommandResponse{
+			Text:         "Usage: admin publish-newsletter [week] [year] or admin publish-newsletter (for current week)",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	week, err := strconv.Atoi(args[0])
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Invalid week number",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	year, err := strconv.Atoi(args[1])
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         "❌ Invalid year",
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	issue, err := ah.db.GetOrCreateWeeklyIssue(week, year)
+	if err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to get newsletter issue: %v", err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	if err := ah.db.PublishNewsletterIssue(issue.ID); err != nil {
+		return &SlashCommandResponse{
+			Text:         fmt.Sprintf("❌ Failed to publish newsletter: %v", err),
+			ResponseType: "ephemeral",
+		}, nil
+	}
+
+	return &SlashCommandResponse{
+		Text:         fmt.Sprintf("✅ Published newsletter for Week %d, %d", week, year),
 		ResponseType: "ephemeral",
 	}, nil
 }

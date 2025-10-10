@@ -1,28 +1,29 @@
 package main
 
 import (
+	"context"
 	"log"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/olle-forsslof/kumpan-newspaper/internal/ai"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/config"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/database"
+	"github.com/olle-forsslof/kumpan-newspaper/internal/scheduler"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/server"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/slack"
 	"github.com/olle-forsslof/kumpan-newspaper/internal/templates"
 )
 
 func main() {
-	// load configuration
 	cfg := config.Load()
 
-	// validate critical configuration
 	if err := cfg.Validate(); err != nil {
 		log.Fatal("Configuration error: ", err)
 	}
 
-	// set up logging
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
 	}))
@@ -31,6 +32,7 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize database: ", err)
 	}
+	defer db.Close()
 
 	if err := db.Migrate(); err != nil {
 		log.Fatal("Failed to run database migrations: ", err)
@@ -39,30 +41,41 @@ func main() {
 	questionSelector := database.NewQuestionSelector(db.DB)
 	submissionManager := database.NewSubmissionManager(db.DB)
 
-	// Create AI processor (AnthropicService implements the AIProcessor interface)
 	aiProcessor := ai.NewAnthropicService(cfg.AnthropicAPIKey)
 
-	// Create bot with full weekly automation capabilities
 	slackBot := slack.NewBotWithWeeklyAutomation(slack.SlackConfig{
 		Token:         cfg.SlackBotToken,
 		SigningSecret: cfg.SlackSigningSecret,
 	}, questionSelector, cfg.AdminUsers, submissionManager, aiProcessor, db)
 
-	// Create template service
 	templateService, err := templates.NewTemplateService(nil)
 	if err != nil {
 		log.Fatal("Failed to create template service: ", err)
 	}
 
-	// create server with dependencies - pass the slackBot, database, and template service
-	srv := server.NewWithBotAndTemplates(cfg, logger, slackBot, db, templateService)
+	publisher, err := scheduler.NewNewsletterPublisher(db, logger)
+	if err != nil {
+		log.Fatal("Failed to create newsletter publisher: ", err)
+	}
 
-	// set up routes
+	go publisher.Start()
+
+	srv := server.NewWithBotAndTemplates(cfg, logger, slackBot, db, templateService)
 	srv.SetupRoutes()
 
-	// start server
-	logger.Info("Starting newsletter service")
-	if err := srv.Start(); err != nil {
-		log.Fatal("Server failed to start: ", err)
-	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go func() {
+		logger.Info("Starting newsletter service")
+		if err := srv.Start(); err != nil {
+			log.Fatal("Server failed to start: ", err)
+		}
+	}()
+
+	<-ctx.Done()
+
+	logger.Info("Shutdown signal received, stopping services...")
+	publisher.Stop()
+	logger.Info("Newsletter service stopped gracefully")
 }

@@ -819,3 +819,195 @@ func TestGetPublishedNewsletterIssues(t *testing.T) {
 		}
 	})
 }
+
+func TestPublishNewsletterIssue(t *testing.T) {
+	tempFile := "/tmp/test_publish_newsletter.db"
+	defer os.Remove(tempFile)
+
+	db, err := NewSimple(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+
+	t.Run("Publish draft issue successfully", func(t *testing.T) {
+		issue, err := db.CreateWeeklyNewsletterIssue(1, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create issue: %v", err)
+		}
+
+		if issue.Status != IssueStatusDraft {
+			t.Errorf("Expected draft status, got %s", issue.Status)
+		}
+
+		err = db.PublishNewsletterIssue(issue.ID)
+		if err != nil {
+			t.Fatalf("Failed to publish issue: %v", err)
+		}
+
+		publishedIssue, err := db.GetWeeklyNewsletterIssue(issue.ID)
+		if err != nil {
+			t.Fatalf("Failed to get published issue: %v", err)
+		}
+
+		if publishedIssue.Status != IssueStatusPublished {
+			t.Errorf("Expected published status, got %s", publishedIssue.Status)
+		}
+
+		if publishedIssue.PublishedAt == nil {
+			t.Error("Expected published_at to be set")
+		}
+	})
+
+	t.Run("Prevent double publish", func(t *testing.T) {
+		issue, err := db.CreateWeeklyNewsletterIssue(2, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create issue: %v", err)
+		}
+
+		err = db.PublishNewsletterIssue(issue.ID)
+		if err != nil {
+			t.Fatalf("Failed to publish issue first time: %v", err)
+		}
+
+		err = db.PublishNewsletterIssue(issue.ID)
+		if err == nil {
+			t.Error("Expected error when publishing already published issue")
+		}
+	})
+
+	t.Run("Publish non-existent issue", func(t *testing.T) {
+		err := db.PublishNewsletterIssue(99999)
+		if err == nil {
+			t.Error("Expected error when publishing non-existent issue")
+		}
+	})
+}
+
+func TestGetMostRecentPublishedIssue(t *testing.T) {
+	tempFile := "/tmp/test_most_recent_published.db"
+	defer os.Remove(tempFile)
+
+	db, err := NewSimple(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+
+	t.Run("No published issues", func(t *testing.T) {
+		_, err := db.GetMostRecentPublishedIssue()
+		if err == nil {
+			t.Error("Expected error when no published issues exist")
+		}
+	})
+
+	t.Run("Get most recent from multiple published", func(t *testing.T) {
+		issue1, err := db.CreateWeeklyNewsletterIssue(1, 2024)
+		if err != nil {
+			t.Fatalf("Failed to create issue 1: %v", err)
+		}
+		err = db.PublishNewsletterIssue(issue1.ID)
+		if err != nil {
+			t.Fatalf("Failed to publish issue 1: %v", err)
+		}
+
+		issue2, err := db.CreateWeeklyNewsletterIssue(52, 2024)
+		if err != nil {
+			t.Fatalf("Failed to create issue 2: %v", err)
+		}
+		err = db.PublishNewsletterIssue(issue2.ID)
+		if err != nil {
+			t.Fatalf("Failed to publish issue 2: %v", err)
+		}
+
+		issue3, err := db.CreateWeeklyNewsletterIssue(1, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create issue 3: %v", err)
+		}
+		err = db.PublishNewsletterIssue(issue3.ID)
+		if err != nil {
+			t.Fatalf("Failed to publish issue 3: %v", err)
+		}
+
+		recent, err := db.GetMostRecentPublishedIssue()
+		if err != nil {
+			t.Fatalf("Failed to get most recent published issue: %v", err)
+		}
+
+		if recent.Year != 2025 || recent.WeekNumber != 1 {
+			t.Errorf("Expected week 1, 2025, got week %d, %d", recent.WeekNumber, recent.Year)
+		}
+
+		if recent.Status != IssueStatusPublished {
+			t.Errorf("Expected published status, got %s", recent.Status)
+		}
+	})
+
+	t.Run("Ignore draft issues", func(t *testing.T) {
+		_, err := db.CreateWeeklyNewsletterIssue(10, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create draft issue: %v", err)
+		}
+
+		recent, err := db.GetMostRecentPublishedIssue()
+		if err != nil {
+			t.Fatalf("Failed to get most recent published issue: %v", err)
+		}
+
+		if recent.WeekNumber == 10 {
+			t.Error("Draft issue should not be returned as most recent published")
+		}
+	})
+}
+
+func TestGetCurrentWeekIssue(t *testing.T) {
+	tempFile := "/tmp/test_current_week_issue.db"
+	defer os.Remove(tempFile)
+
+	db, err := NewSimple(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to create database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Failed to run migrations: %v", err)
+	}
+
+	t.Run("No current week issue exists", func(t *testing.T) {
+		_, err := db.GetCurrentWeekIssue()
+		if err == nil {
+			t.Error("Expected error when no current week issue exists")
+		}
+	})
+
+	t.Run("Get current week issue", func(t *testing.T) {
+		week, year := getCurrentWeekAndYear()
+		issue, err := db.CreateWeeklyNewsletterIssue(week, year)
+		if err != nil {
+			t.Fatalf("Failed to create current week issue: %v", err)
+		}
+
+		currentIssue, err := db.GetCurrentWeekIssue()
+		if err != nil {
+			t.Fatalf("Failed to get current week issue: %v", err)
+		}
+
+		if currentIssue.ID != issue.ID {
+			t.Errorf("Expected issue ID %d, got %d", issue.ID, currentIssue.ID)
+		}
+
+		if currentIssue.WeekNumber != week || currentIssue.Year != year {
+			t.Errorf("Expected week %d, year %d, got week %d, year %d",
+				week, year, currentIssue.WeekNumber, currentIssue.Year)
+		}
+	})
+}

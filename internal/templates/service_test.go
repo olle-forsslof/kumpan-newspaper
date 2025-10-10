@@ -345,11 +345,11 @@ func TestTemplateService_RenderArchive(t *testing.T) {
 			t.Error("Second issue title not found")
 		}
 
-		if !strings.Contains(html, "/newsletter/40/2025") {
+		if !strings.Contains(html, "/40/2025") {
 			t.Error("Link to week 40 newsletter not found")
 		}
 
-		if !strings.Contains(html, "/newsletter/39/2025") {
+		if !strings.Contains(html, "/39/2025") {
 			t.Error("Link to week 39 newsletter not found")
 		}
 

@@ -47,7 +47,6 @@ func New(cfg *config.Config, logger *slog.Logger) *Server {
 
 func (s *Server) SetupRoutes() {
 	s.mux.HandleFunc("/health", s.healthHandler)
-	s.mux.HandleFunc("/", s.rootHandler)
 
 	// Static file serving for CSS and assets
 	staticDir := http.Dir("./static/")
@@ -55,9 +54,9 @@ func (s *Server) SetupRoutes() {
 
 	// Newsletter template routes
 	if s.templateService != nil {
-		s.mux.HandleFunc("/newsletter", s.currentNewsletterHandler)
-		s.mux.HandleFunc("/newsletter/", s.newsletterHandler)
+		s.mux.HandleFunc("/draft", s.draftHandler)
 		s.mux.HandleFunc("/archive", s.archiveHandler)
+		s.mux.HandleFunc("/", s.specificNewsletterHandler)
 	}
 
 	if s.slack != nil {
@@ -83,15 +82,6 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `{"status": "ok", "service": "newsletter"}`)
-}
-
-func (s *Server) rootHandler(w http.ResponseWriter, r *http.Request) {
-	s.logger.Info("Root endpoint accessed",
-		slog.String("method", r.Method),
-		slog.String("path", r.URL.Path),
-	)
-
-	fmt.Fprintf(w, "Newsletter service is running")
 }
 
 func (s *Server) Start() error {
@@ -125,48 +115,30 @@ func NewWithBotAndTemplates(cfg *config.Config, logger *slog.Logger, bot slack.B
 	}
 }
 
-// currentNewsletterHandler serves the current week's newsletter
-func (s *Server) currentNewsletterHandler(w http.ResponseWriter, r *http.Request) {
+// specificNewsletterHandler routes requests to either most recent published or specific issue
+func (s *Server) specificNewsletterHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// Get current week and year
-	now := time.Now()
-	year, week := now.ISOWeek()
-
-	// Try to get the current week's newsletter issue
-	issue, err := s.db.GetOrCreateWeeklyIssue(week, year)
-	if err != nil {
-		s.logger.Error("Failed to get current newsletter issue", "error", err)
-		http.Error(w, "Failed to load newsletter", http.StatusInternalServerError)
-		return
-	}
-
-	s.renderNewsletter(w, r, issue)
-}
-
-// newsletterHandler serves specific newsletter issues by week/year
-func (s *Server) newsletterHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Parse URL path: /newsletter/week/year or /newsletter/id
 	path := r.URL.Path
 	segments := strings.Split(strings.Trim(path, "/"), "/")
 
-	if len(segments) < 2 {
-		http.Error(w, "Invalid newsletter URL format", http.StatusBadRequest)
+	if len(segments) == 1 && segments[0] == "" {
+		issue, err := s.db.GetMostRecentPublishedIssue()
+		if err != nil {
+			s.logger.Error("Failed to get most recent published issue", "error", err)
+			http.Error(w, "No published newsletters available", http.StatusNotFound)
+			return
+		}
+		s.renderNewsletter(w, r, issue)
 		return
 	}
 
-	// Try to parse as week/year first
-	if len(segments) >= 3 {
-		week, err1 := strconv.Atoi(segments[1])
-		year, err2 := strconv.Atoi(segments[2])
+	if len(segments) == 2 {
+		week, err1 := strconv.Atoi(segments[0])
+		year, err2 := strconv.Atoi(segments[1])
 
 		if err1 == nil && err2 == nil {
 			issue, err := s.db.GetOrCreateWeeklyIssue(week, year)
@@ -180,17 +152,23 @@ func (s *Server) newsletterHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Try to parse as ID
-	issueID, err := strconv.Atoi(segments[1])
-	if err != nil {
-		http.Error(w, "Invalid newsletter ID", http.StatusBadRequest)
+	http.Error(w, "Invalid URL format. Use / for current or /{week}/{year} for specific issue", http.StatusBadRequest)
+}
+
+// draftHandler serves the current week's draft newsletter
+func (s *Server) draftHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	issue, err := s.db.GetWeeklyNewsletterIssue(issueID)
+	now := time.Now()
+	year, week := now.ISOWeek()
+
+	issue, err := s.db.GetOrCreateWeeklyIssue(week, year)
 	if err != nil {
-		s.logger.Error("Failed to get newsletter issue by ID", "id", issueID, "error", err)
-		http.Error(w, "Newsletter not found", http.StatusNotFound)
+		s.logger.Error("Failed to get current week draft", "error", err)
+		http.Error(w, "Failed to load draft", http.StatusInternalServerError)
 		return
 	}
 

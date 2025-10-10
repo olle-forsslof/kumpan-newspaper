@@ -75,16 +75,13 @@ func TestServer_SlackIntegration(t *testing.T) {
 }
 
 func TestServer_SlackDisabled(t *testing.T) {
-	// Test that server works when Slack is not configured
 	cfg := &config.Config{
 		Port: "8080",
-		// No Slack tokens - should disable Slack integration
 	}
 
 	srv := New(cfg, slog.New(slog.NewTextHandler(os.Stdout, nil)))
 	srv.SetupRoutes()
 
-	// Health check should still work
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
 
@@ -92,17 +89,6 @@ func TestServer_SlackDisabled(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("Health check failed when Slack disabled: got %d", w.Code)
-	}
-
-	// Slack commands should be handled by the root handler when Slack is disabled
-	slackReq := httptest.NewRequest("POST", "/api/slack/commands", nil)
-	slackW := httptest.NewRecorder()
-
-	srv.Handler().ServeHTTP(slackW, slackReq)
-
-	// The root handler should have taken over
-	if slackW.Body.String() != "Newsletter service is running" {
-		t.Errorf("Expected default handler response, got: %s", slackW.Body.String())
 	}
 
 	t.Log("Server gracefully handles disabled Slack integration")
@@ -214,6 +200,189 @@ func TestServer_ArchiveHandler(t *testing.T) {
 		body := w.Body.String()
 		if !strings.Contains(body, "No newsletters yet") {
 			t.Error("Empty state message not found")
+		}
+	})
+}
+
+func TestServer_RootHandler(t *testing.T) {
+	cfg := &config.Config{
+		Port: "8080",
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tempFile := "/tmp/test_root_handler.db"
+	defer os.Remove(tempFile)
+
+	db, err := setupTestDatabase(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to setup test database: %v", err)
+	}
+	defer db.Close()
+
+	templateService, err := setupTestTemplateService()
+	if err != nil {
+		t.Fatalf("Failed to setup template service: %v", err)
+	}
+
+	srv := NewWithBotAndTemplates(cfg, logger, nil, db, templateService)
+	srv.SetupRoutes()
+
+	t.Run("GET / returns 404 when no published issues", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/", nil)
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("Expected status 404, got %d", w.Code)
+		}
+	})
+
+	t.Run("GET / returns most recent published issue", func(t *testing.T) {
+		issue1, err := db.CreateWeeklyNewsletterIssue(1, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create issue 1: %v", err)
+		}
+		err = db.PublishNewsletterIssue(issue1.ID)
+		if err != nil {
+			t.Fatalf("Failed to publish issue 1: %v", err)
+		}
+
+		issue2, err := db.CreateWeeklyNewsletterIssue(2, 2025)
+		if err != nil {
+			t.Fatalf("Failed to create issue 2: %v", err)
+		}
+		err = db.PublishNewsletterIssue(issue2.ID)
+		if err != nil {
+			t.Fatalf("Failed to publish issue 2: %v", err)
+		}
+
+		req := httptest.NewRequest("GET", "/", nil)
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
+
+		body := w.Body.String()
+		if !strings.Contains(body, "Week 2 Newsletter - 2025") {
+			t.Error("Most recent published issue not shown at root")
+		}
+	})
+}
+
+func TestServer_DraftHandler(t *testing.T) {
+	cfg := &config.Config{
+		Port: "8080",
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tempFile := "/tmp/test_draft_handler.db"
+	defer os.Remove(tempFile)
+
+	db, err := setupTestDatabase(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to setup test database: %v", err)
+	}
+	defer db.Close()
+
+	templateService, err := setupTestTemplateService()
+	if err != nil {
+		t.Fatalf("Failed to setup template service: %v", err)
+	}
+
+	srv := NewWithBotAndTemplates(cfg, logger, nil, db, templateService)
+	srv.SetupRoutes()
+
+	t.Run("GET /draft creates and returns current week draft", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/draft", nil)
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
+
+		body := w.Body.String()
+		if !strings.Contains(body, "Newsletter") {
+			t.Error("Draft newsletter not rendered")
+		}
+	})
+
+	t.Run("POST /draft returns 405", func(t *testing.T) {
+		req := httptest.NewRequest("POST", "/draft", nil)
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("Expected status 405, got %d", w.Code)
+		}
+	})
+}
+
+func TestServer_SpecificNewsletterHandler(t *testing.T) {
+	cfg := &config.Config{
+		Port: "8080",
+	}
+
+	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
+
+	tempFile := "/tmp/test_specific_newsletter.db"
+	defer os.Remove(tempFile)
+
+	db, err := setupTestDatabase(tempFile)
+	if err != nil {
+		t.Fatalf("Failed to setup test database: %v", err)
+	}
+	defer db.Close()
+
+	templateService, err := setupTestTemplateService()
+	if err != nil {
+		t.Fatalf("Failed to setup template service: %v", err)
+	}
+
+	srv := NewWithBotAndTemplates(cfg, logger, nil, db, templateService)
+	srv.SetupRoutes()
+
+	t.Run("GET /{week}/{year} returns specific issue", func(t *testing.T) {
+		issue, err := db.CreateWeeklyNewsletterIssue(10, 2024)
+		if err != nil {
+			t.Fatalf("Failed to create issue: %v", err)
+		}
+		err = db.PublishNewsletterIssue(issue.ID)
+		if err != nil {
+			t.Fatalf("Failed to publish issue: %v", err)
+		}
+
+		req := httptest.NewRequest("GET", "/10/2024", nil)
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
+
+		body := w.Body.String()
+		if !strings.Contains(body, "Week 10 Newsletter - 2024") {
+			t.Error("Specific issue not found")
+		}
+	})
+
+	t.Run("GET /invalid/format returns 400", func(t *testing.T) {
+		req := httptest.NewRequest("GET", "/invalid/format", nil)
+		w := httptest.NewRecorder()
+
+		srv.Handler().ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("Expected status 400, got %d", w.Code)
 		}
 	})
 }
