@@ -23,8 +23,8 @@ type TemplateService struct {
 func NewTemplateService(config *TemplateConfig) (*TemplateService, error) {
 	if config == nil {
 		config = &TemplateConfig{
-			CompanyName:    "Company Newsletter",
-			NewsletterName: "Weekly Newsletter",
+			CompanyName:    "Kumpanposten",
+			NewsletterName: "Kumpanens veckoliga nyhetsbrev",
 			Theme:          "classic",
 			BaseURL:        "",
 			StaticURL:      "/static",

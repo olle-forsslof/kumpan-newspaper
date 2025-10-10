@@ -223,7 +223,7 @@ func getJSONStructureForJournalist(journalistType string) string {
 	case "body_mind":
 		return `{
   "headline": "Kumpanens kropp & knopp",
-  "question": "Anonymous submitted question",
+  "question": "Reformulated anonymous submitted question",
   "response": "Advice response content", 
   "signoff": "Snarky but encouraging closing",
 }`
