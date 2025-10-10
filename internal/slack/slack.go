@@ -263,19 +263,19 @@ func (b *slackBot) handleRegularHelp() *SlashCommandResponse {
 	help := "*Newsletter Bot Help*\n\n" +
 		"This bot helps manage weekly newsletter content collection and AI-powered article generation.\n\n" +
 		"*🚀 Submission Methods:*\n" +
-		"• **Slash Command**: `/pp submit [category] \"your content\"`\n" +
-		"• **Reply to Bot**: Simply reply to weekly assignment DMs\n" +
+		"• **Slash Command**: `/pp submit [category] \"your content\"` (for `general` and `body_mind` only)\n" +
+		"• **Reply to Bot**: Reply to weekly assignment DMs (supports all categories)\n" +
 		"• **Auto-Processing**: All submissions are processed by AI journalists\n\n" +
 		"*📝 Content Categories:*\n" +
-		"• `feature` - Major features, launches, or product announcements\n" +
-		"• `general` - Regular news, updates, interesting links, or team updates\n" +
-		"• `interview` - Q&A format content, interviews, or conversation pieces\n" +
-		"• `body_mind` - Wellness content (submitted anonymously for privacy)\n\n" +
+		"• `feature` - Major features, launches, or product announcements (assignment-only)\n" +
+		"• `general` - Regular news, updates, interesting links, or team updates (slash command or assignment)\n" +
+		"• `interview` - Q&A format content, interviews, or conversation pieces (assignment-only)\n" +
+		"• `body_mind` - Wellness content (slash command or assignment, submitted anonymously for privacy)\n\n" +
 		"*💡 Command Examples:*\n" +
-		"• `/pp submit feature \"Our team launched the new analytics dashboard with real-time insights!\"`\n" +
 		"• `/pp submit general \"Found this excellent article on Go performance optimization\"`\n" +
 		"• `/pp submit body_mind \"What techniques help you manage stress during deployment weeks?\"`\n" +
 		"• `/pp submit \"Check out this cool open-source library\"` (defaults to general)\n\n" +
+		"*⚠️ Note:* Feature and interview submissions require an active assignment. If you try to submit these categories without an assignment, they will fall back to general processing.\n\n" +
 		"*📅 Weekly Assignment Workflow:*\n" +
 		"• Receive personalized assignment DM with specific question and category\n" +
 		"• Reply directly to the bot OR use the slash command format provided\n" +
