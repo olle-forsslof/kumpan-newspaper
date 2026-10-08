@@ -1,0 +1,42 @@
+{{define "header"}}<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} | Kumpan-Posten</title>
+  <link rel="stylesheet" href="/static/css/kp.css">
+</head>
+<body>
+<a class="skip-link" href="#main">Hoppa till innehållet</a>
+<div class="paper">
+  <header class="masthead">
+    <p class="eyebrow">Nyheter från oss, för oss</p>
+    <a class="nameplate" href="/">Kumpan-Posten</a>
+    <nav aria-label="Huvudmeny">
+      <a href="/">Senaste numret</a>
+      <a href="/archive">Arkiv</a>
+      {{if .User.Editor}}<a href="/draft">Redaktionen</a>{{end}}
+      <span class="username">{{.User.Name}}</span>
+      <form action="/auth/logout" method="post">
+        <input type="hidden" name="csrf_token" value="{{.User.CSRF}}">
+        <button type="submit" class="quiet">Logga ut</button>
+      </form>
+    </nav>
+  </header>
+  <main id="main">
+{{end}}
+
+{{define "footer"}}
+  </main>
+  <footer class="footer">Kumpan-Posten · Vår egen tidning</footer>
+</div>
+</body>
+</html>{{end}}
+
+{{define "error"}}{{template "header" .}}
+<section class="notice">
+  <h1>{{.Title}}</h1>
+  <p>{{.Message}}</p>
+  <p><a class="action" href="/">Till senaste numret</a>{{if .User.Editor}} <a class="action" href="/draft">Till utkastet</a>{{end}}</p>
+</section>
+{{template "footer" .}}{{end}}

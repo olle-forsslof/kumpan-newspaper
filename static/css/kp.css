@@ -1,0 +1,251 @@
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    background: #faf9f6;
+    color: #1a1a1a;
+    font: 1.125rem/1.65 Georgia, "Times New Roman", serif;
+}
+
+a {
+    color: inherit;
+    text-underline-offset: 0.2em;
+}
+
+.paper {
+    max-inline-size: 72rem;
+    margin-inline: auto;
+    padding: clamp(1rem, 4vw, 3rem);
+}
+
+.masthead {
+    text-align: center;
+    border-block-end: 4px double;
+    margin-block-end: 2rem;
+}
+
+.nameplate {
+    display: block;
+    font-size: clamp(2.25rem, 8vw, 5.5rem);
+    font-weight: 900;
+    line-height: 1.15;
+    letter-spacing: -0.04em;
+    text-decoration: none;
+    padding-block: 0.5rem 1rem;
+}
+
+.eyebrow, nav, .actions, .footer, label, button, input, textarea, legend, .archive time {
+    font-family: Arial, sans-serif;
+}
+
+.eyebrow {
+    font-size: 0.8rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+nav, .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+}
+
+nav {
+    justify-content: center;
+    border-block-start: 1px solid;
+    padding-block: 0.5rem;
+    font-size: 1rem;
+}
+
+nav a, .action {
+    display: inline-flex;
+    align-items: center;
+    min-block-size: 3rem;
+    padding-block: 0.5rem;
+}
+
+.username {
+    overflow-wrap: anywhere;
+}
+
+h1, h2 {
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
+h1 {
+    font-size: clamp(2rem, 5vw, 3rem);
+}
+
+h2 {
+    font-size: 1.8rem;
+}
+
+.issue-heading {
+    text-align: center;
+    margin-block-end: 2rem;
+}
+
+.articles {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem;
+}
+
+.article {
+    border-block-end: 1px solid;
+    padding-block-end: 1.5rem;
+    min-inline-size: 0;
+}
+
+.text {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+blockquote {
+    margin-inline: 0;
+    padding-inline-start: 1rem;
+    border-inline-start: 3px solid;
+    font-style: italic;
+}
+
+.byline {
+    font-style: italic;
+}
+
+.notice, .original {
+    border: 1px solid;
+    padding: 1.25rem;
+    margin-block: 1.5rem;
+}
+
+.original, .editor {
+    max-inline-size: 48rem;
+}
+
+.publish, .footer {
+    border-block-start: 4px double;
+    margin-block-start: 2rem;
+    padding-block-start: 1rem;
+}
+
+.footer {
+    font-size: 0.875rem;
+    text-align: center;
+}
+
+button, input, textarea {
+    font-size: 1rem;
+    line-height: 1.5;
+    border: 1px solid #1a1a1a;
+    border-radius: 0;
+}
+
+button {
+    min-block-size: 3rem;
+    padding: 0.65rem 1rem;
+    background: #1a1a1a;
+    color: #faf9f6;
+    cursor: pointer;
+}
+
+button.quiet {
+    color: #1a1a1a;
+    background: transparent;
+}
+
+input:not([type="hidden"]):not([type="checkbox"]), textarea {
+    display: block;
+    inline-size: 100%;
+    min-block-size: 3rem;
+    padding: 0.65rem;
+    color: #1a1a1a;
+    background: #fffdf8;
+}
+
+textarea {
+    resize: vertical;
+}
+
+fieldset {
+    padding: 0;
+    border: 0;
+    min-inline-size: 0;
+}
+
+legend {
+    font-weight: bold;
+    margin-block-end: 1rem;
+}
+
+label {
+    display: block;
+    font-size: 1rem;
+    margin-block-end: 0.3rem;
+}
+
+.field {
+    margin-block-end: 1.5rem;
+}
+
+.confirmation {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-block-end: 1rem;
+}
+
+.confirmation input {
+    inline-size: 1.5rem;
+    block-size: 1.5rem;
+    flex-shrink: 0;
+    accent-color: #1a1a1a;
+}
+
+.confirmation label {
+    min-block-size: 3rem;
+    padding-block: 0.75rem;
+    margin: 0;
+}
+
+:focus-visible {
+    outline: 3px solid #1a1a1a;
+    outline-offset: 4px;
+}
+
+.archive {
+    list-style: none;
+    padding: 0;
+}
+
+.archive li {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    border-block-end: 1px solid;
+    padding-block: 1rem;
+}
+
+.skip-link {
+    position: absolute;
+    inset-inline-start: 1rem;
+    inset-block-start: -10rem;
+    padding: 1rem;
+    background: #fffdf8;
+}
+
+.skip-link:focus {
+    inset-block-start: 1rem;
+}
+
+@media (max-width: 48rem) {
+    .articles {
+        grid-template-columns: 1fr;
+    }
+}

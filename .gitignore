@@ -21,9 +21,12 @@ go.work
 .env
 .env.local
 .env.production
+.envrc
 
 # Database files/var/folders/82/3k_cmpkj22xcvnrxrsb74jz80000gn/T/TemporaryItems/NSIRD_screencaptureui_nR5869/Skärmavbild\ 2025-09-10\ kl.\ 15.09.08.png
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 
@@ -55,4 +58,3 @@ Thumbs.db
 big-picture.md
 go-course.md
 # prompt_plan.md
-

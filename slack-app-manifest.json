@@ -1,0 +1,43 @@
+{
+  "display_information": {
+    "name": "Kumpanposten",
+    "description": "Rapporter och frågor till den interna tidningen",
+    "background_color": "#24352b"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "kp",
+      "always_online": false
+    },
+    "slash_commands": [
+      {
+        "command": "/tellkp",
+        "url": "https://kumpanbladet.kumpan.tech/api/slack/commands",
+        "description": "Skicka en rapport till Kumpanposten",
+        "usage_hint": "<rapport eller nyhet>",
+        "should_escape": false
+      },
+      {
+        "command": "/askkp",
+        "url": "https://kumpanbladet.kumpan.tech/api/slack/commands",
+        "description": "Skicka en fråga för anonym publicering",
+        "usage_hint": "<din fråga>",
+        "should_escape": false
+      }
+    ]
+  },
+  "oauth_config": {
+    "redirect_urls": [
+      "https://kumpanbladet.kumpan.tech/auth/callback"
+    ],
+    "scopes": {
+      "bot": ["commands", "chat:write", "im:write"],
+      "user": ["openid", "profile"]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

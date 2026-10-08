@@ -1,0 +1,59 @@
+{{define "issue"}}{{template "header" .}}
+{{if .Issue}}
+<header class="issue-heading">
+  {{if .Draft}}<p class="eyebrow">Redaktionens utkast · Inte publicerat</p>{{else}}<p class="eyebrow">Publicerat {{date .Issue.PublishedAt}}</p>{{end}}
+  <h1>{{if .Draft}}Veckans utkast{{else}}Nummer {{.Issue.ID}}{{end}}</h1>
+</header>
+{{if .Draft}}<p class="notice">Granska artiklarna innan publicering. Ett publicerat nummer kan inte ändras.</p>{{end}}
+<div class="articles">
+{{range .Articles}}
+  <article class="article">
+    {{if $.Draft}}<p class="eyebrow">{{status .Status}} · {{if eq .Kind "question"}}Anonym fråga{{else}}{{.AuthorName}}{{end}}</p>{{end}}
+    {{if eq .Status "ready"}}
+      <h2>{{.Headline}}</h2>
+      {{if .Question}}<blockquote class="text">{{.Question}}</blockquote>{{end}}
+      <div class="text">{{.Body}}</div>
+      {{if eq .Kind "report"}}<p class="byline">Rapporterat av {{.AuthorName}}</p>{{else if .Signature}}<p class="byline text">{{.Signature}}</p>{{end}}
+      {{if .Signoff}}<p class="text">{{.Signoff}}</p>{{end}}
+    {{else if $.Draft}}
+      <h2>{{if eq .Kind "question"}}Anonym fråga{{else}}Bidrag från {{.AuthorName}}{{end}}</h2>
+      {{if eq .Status "failed"}}<p>Artikeln kunde inte bearbetas. Försök igen eller ta bort bidraget.</p>{{else}}<p>Artikeln väntar på att bli klar.</p>{{end}}
+    {{end}}
+    {{if $.Draft}}
+    <div class="actions">
+      <a class="action" href="/editor/article/{{.ID}}">{{if eq .Status "ready"}}Redigera{{else}}Visa original{{end}}</a>
+      {{if eq .Status "failed"}}<form method="post" action="/editor/article/{{.ID}}/retry">
+        <input type="hidden" name="csrf_token" value="{{$.User.CSRF}}">
+        <input type="hidden" name="revision" value="{{.Revision}}">
+        <button type="submit">Försök igen</button>
+      </form>{{end}}
+      <form method="post" action="/editor/article/{{.ID}}/remove">
+        <input type="hidden" name="csrf_token" value="{{$.User.CSRF}}">
+        <input type="hidden" name="revision" value="{{.Revision}}">
+        <button type="submit" class="quiet">Ta bort bidrag</button>
+      </form>
+    </div>
+    {{end}}
+  </article>
+{{else}}
+  <p>Det finns inga artiklar i numret ännu.</p>
+{{end}}
+</div>
+{{if .Draft}}
+<section class="publish">
+  <h2>Publicera numret</h2>
+  <form method="post" action="/editor/issues/{{.Issue.ID}}/publish">
+    <input type="hidden" name="csrf_token" value="{{.User.CSRF}}">
+    <input type="hidden" name="review" value="{{.Review}}">
+    <div class="confirmation">
+      <input id="confirm" type="checkbox" name="confirm" value="yes" required>
+      <label for="confirm">Jag har granskat numret och förstår att det inte kan ändras efter publicering.</label>
+    </div>
+    <button type="submit">Publicera för alla läsare</button>
+  </form>
+</section>
+{{end}}
+{{else}}
+<section class="notice"><h1>Första numret är på väg</h1><p>Inga nummer har publicerats ännu. Välkommen tillbaka snart.</p></section>
+{{end}}
+{{template "footer" .}}{{end}}

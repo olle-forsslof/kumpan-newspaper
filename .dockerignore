@@ -9,6 +9,7 @@ README.md
 # Build artifacts
 server
 main
+build/
 
 # Development files
 .DS_Store
@@ -17,10 +18,11 @@ main
 
 # Data files
 data/
-*.db
+*.db*
 
 # Test files and coverage
 *_test.go
+tests/
 coverage.out
 
 # IDE files
@@ -33,5 +35,5 @@ coverage.out
 *.log
 
 # Environment files
-.env
-.env.local
+.env*
+.opencode/

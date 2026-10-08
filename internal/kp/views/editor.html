@@ -1,0 +1,28 @@
+{{define "editor"}}{{template "header" .}}
+<p><a class="action" href="/draft">Tillbaka till utkastet</a></p>
+<h1>Redigera artikel</h1>
+{{if .Message}}<p class="notice" role="alert">{{.Message}}</p>{{end}}
+<section class="original">
+  <h2>Originalbidrag</h2>
+  <p class="byline">{{if eq .Article.Kind "question"}}Anonym fråga{{else}}Från {{.Article.AuthorName}}{{end}} · {{status .Article.Status}}</p>
+  <div class="text">{{.Article.Original}}</div>
+</section>
+{{if eq .Article.Status "ready"}}
+<form class="editor" method="post" action="/editor/article/{{.Article.ID}}/save">
+  <input type="hidden" name="csrf_token" value="{{.User.CSRF}}">
+  <input type="hidden" name="revision" value="{{.Article.Revision}}">
+  <fieldset>
+    <legend>Bearbetad artikel</legend>
+    <div class="field"><label for="heading">Rubrik (obligatorisk)</label><input id="heading" name="heading" value="{{.Article.Headline}}" maxlength="500" required></div>
+    <div class="field"><label for="body">{{if eq .Article.Kind "question"}}Reporterns svar{{else}}Brödtext{{end}} (obligatorisk)</label><textarea id="body" name="body" rows="12" maxlength="20000" required>{{.Article.Body}}</textarea></div>
+    {{if eq .Article.Kind "question"}}
+    <div class="field"><label for="question">Fråga (obligatorisk)</label><textarea id="question" name="question" rows="4" maxlength="20000" required>{{.Article.Question}}</textarea></div>
+    <div class="field"><label for="signature">Signatur (obligatorisk)</label><input id="signature" name="signature" value="{{.Article.Signature}}" maxlength="500" required></div>
+    <div class="field"><label for="signoff">Avslutning</label><textarea id="signoff" name="signoff" rows="3" maxlength="500">{{.Article.Signoff}}</textarea></div>
+    <p>Kontrollera att varken frågan, signaturen eller svaret pekar ut någon.</p>
+    {{end}}
+  </fieldset>
+  <button type="submit">Spara ändringar</button>
+</form>
+{{else}}<p>Artikeln kan redigeras när bearbetningen är klar. Du kan hantera bidraget i utkastet.</p>{{end}}
+{{template "footer" .}}{{end}}
