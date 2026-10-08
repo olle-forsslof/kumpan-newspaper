@@ -28,15 +28,23 @@ type Web struct {
 }
 
 type webPage struct {
-	Title    string
-	User     auth.User
-	Issue    *Issue
-	Issues   []Issue
-	Articles []Article
-	Article  *Article
-	Draft    bool
-	Message  string
-	Review   string
+	Title     string
+	User      auth.User
+	Issue     *Issue
+	Issues    []Issue
+	Articles  []Article
+	News      []webArticle
+	Questions []webArticle
+	Article   *Article
+	Draft     bool
+	Message   string
+	Review    string
+}
+
+type webArticle struct {
+	Article
+	Draft bool
+	CSRF  string
 }
 
 func NewWeb(store *Store, access Access) *Web {
@@ -89,6 +97,14 @@ func (web *Web) private(next http.Handler) http.Handler {
 
 func (web *Web) render(w http.ResponseWriter, r *http.Request, status int, view string, page webPage) {
 	page.User = auth.UserFrom(r.Context())
+	for _, article := range page.Articles {
+		item := webArticle{Article: article, Draft: page.Draft, CSRF: page.User.CSRF}
+		if article.Kind == KindQuestion {
+			page.Questions = append(page.Questions, item)
+		} else {
+			page.News = append(page.News, item)
+		}
+	}
 	var buf bytes.Buffer
 	if err := web.views.ExecuteTemplate(&buf, view, page); err != nil {
 		http.Error(w, "Sidan kunde inte visas. Försök igen senare.", http.StatusInternalServerError)

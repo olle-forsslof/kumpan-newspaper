@@ -2,7 +2,7 @@
 <header class="issue-heading"><p class="eyebrow">Tidigare utgåvor</p><h1>Arkiv</h1></header>
 <ul class="archive">
 {{range .Issues}}
-  <li><a class="action" href="/issues/{{.ID}}">Nummer {{.ID}} · {{.Title}}</a><time datetime="{{date .PublishedAt}}">{{date .PublishedAt}}</time></li>
+  <li><a class="action" href="/issues/{{.ID}}">Nummer {{.ID}} · Kumpanposten</a><time datetime="{{date .PublishedAt}}">{{date .PublishedAt}}</time></li>
 {{else}}
   <li>Inga nummer har publicerats ännu.</li>
 {{end}}

@@ -55,6 +55,8 @@ Bidrag bearbetas av OpenAI till utkast via Responses API med Structured Outputs.
 
 Redaktören granskar AI-texten, rättar fakta och tar manuellt bort namn och andra identifierande detaljer före publicering. AI-anonymisering är ingen garanti. Misslyckad bearbetning kräver att redaktören väljer ett nytt försök eller tar bort artikeln.
 
+Nyhetsartiklar skrivs ur reporterns perspektiv. Kollegan är en källa som kan nämnas i berättelsen, inte författare eller avsändare i en byline. Anonyma frågor samlas efter nyheterna under rubriken "Inuti Kumpanernas kroppar och knoppar". Varje fråga får en påhittad brevskrivarsignatur som visas tillsammans med frågan, före reporterns svar.
+
 Fredagar från kl. 09.00 i `Europe/Stockholm` får redaktörer en påminnelse om inget nummer har publicerats den dagen. Ingen automatisk publicering sker. Redaktörer kan publicera manuellt vilken dag som helst när alla kvarvarande artiklar är färdiga. Publicerat innehåll är oföränderligt; arkivets utseende kan ändras när HTML-mallarna ändras.
 
 Slack-notiser levereras minst en gång. En tappad nätverksbekräftelse eller ett avbrott efter sändning kan i sällsynta fall ge dubbla notiser, men inte dubbel publicering.

@@ -184,6 +184,96 @@ func TestWebPublicationAndEscaping(t *testing.T) {
 	}
 }
 
+func TestWebNewsAndQuestionSections(t *testing.T) {
+	s := webTestStore(t)
+	var issueID int
+	for _, fixture := range []struct {
+		kind string
+		g    Generated
+	}{
+		{KindQuestion, Generated{Headline: "Luktfrågan", Question: "Hur tar jag upp lukten?", Signature: "En fattig och känslig näsa", Body: "Doftsvaret"}},
+		{KindReport, Generated{Headline: "Veckans nyhet", Body: "Olle berättar om arbetet."}},
+		{KindQuestion, Generated{Headline: "Fikafrågan", Question: "Vem tog sista kakan?", Signature: "En smulig detektiv", Body: "Fikasvaret"}},
+	} {
+		a, err := s.AddSubmission(fixture.kind, "source-id", "Avsändarnamn", "Privat original", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		claim, err := s.ClaimNext()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.CompleteArticle(a.ID, claim.Revision, fixture.g); err != nil {
+			t.Fatal(err)
+		}
+		issueID = a.IssueID
+	}
+	// Deployed issues may still carry the old title; branding is presentation data.
+	if _, err := s.DB.Exec("UPDATE kp_issues SET title = ? WHERE id = ?", "Kumpan-Posten", issueID); err != nil {
+		t.Fatal(err)
+	}
+	mux := webTestMux(s, webTestAccess{reader: true, editor: true})
+	for _, path := range []string{"/draft", "/issues/" + strconv.Itoa(issueID)} {
+		if strings.HasPrefix(path, "/issues/") {
+			if _, err := s.Publish(issueID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w := webTestRequest(mux, "GET", path, nil)
+		body := w.Body.String()
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", path, w.Code, body)
+		}
+		if strings.Contains(body, "Avsändarnamn") || strings.Contains(body, "Rapporterat av") || strings.Contains(body, "Bidrag från") {
+			t.Fatal("source shown as sender or reporter")
+		}
+		if !strings.Contains(body, "Olle berättar om arbetet.") {
+			t.Fatal("source mention in the story was removed")
+		}
+		previous := -1
+		for _, text := range []string{"Veckans nyhet", "Inuti Kumpanernas kroppar och knoppar", "Luktfrågan", "Hur tar jag upp lukten?", "En fattig och känslig näsa", "Doftsvaret", "Fikafrågan", "En smulig detektiv", "Fikasvaret"} {
+			position := strings.Index(body, text)
+			if position <= previous {
+				t.Fatalf("missing or incorrectly ordered %q", text)
+			}
+			previous = position
+		}
+		if strings.Count(body, "Inuti Kumpanernas kroppar och knoppar") != 1 {
+			t.Fatal("question section must have one shared heading")
+		}
+		if strings.Contains(body, "Kumpan-Posten") || !strings.Contains(body, ">Kumpanposten</a>") {
+			t.Fatal("incorrect newspaper name")
+		}
+	}
+	archive := webTestRequest(mux, "GET", "/archive", nil)
+	if archive.Code != http.StatusOK || strings.Contains(archive.Body.String(), "Kumpan-Posten") {
+		t.Fatal("archive uses the old newspaper name")
+	}
+}
+
+func TestWebQuestionSectionVisibility(t *testing.T) {
+	for _, kind := range []string{KindReport, KindQuestion} {
+		t.Run(kind, func(t *testing.T) {
+			s := webTestStore(t)
+			if _, err := s.AddSubmission(kind, "source-id", "Avsändarnamn", "Privat original", ""); err != nil {
+				t.Fatal(err)
+			}
+			mux := webTestMux(s, webTestAccess{reader: true, editor: true})
+			w := webTestRequest(mux, "GET", "/draft", nil)
+			body := w.Body.String()
+			if w.Code != http.StatusOK {
+				t.Fatal(w.Code)
+			}
+			if strings.Contains(body, "Inuti Kumpanernas kroppar och knoppar") != (kind == KindQuestion) {
+				t.Fatal("empty question section shown or pending question hidden")
+			}
+			if strings.Contains(body, "Avsändarnamn") || !strings.Contains(body, "Visa original") || !strings.Contains(body, "/remove") {
+				t.Fatal("pending article leaks source or loses editorial controls")
+			}
+		})
+	}
+}
+
 func TestWebRequiresCurrentReview(t *testing.T) {
 	s := webTestStore(t)
 	a := webTestReady(t, s)

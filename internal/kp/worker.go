@@ -100,7 +100,12 @@ func (w *Worker) process(ctx context.Context) error {
 			return nil
 		}
 		if err == nil {
-			w.logger.Warn("article generation failed", "article_id", a.ID, "category", category)
+			fields := []any{"article_id", a.ID, "category", category}
+			var failure *reporterError
+			if errors.As(generateErr, &failure) {
+				fields = append(fields, "reason", failure.reason, "http_status", failure.status, "api_code", failure.code, "api_param", failure.param)
+			}
+			w.logger.Warn("article generation failed", fields...)
 		}
 		return err
 	}
@@ -135,7 +140,7 @@ func (w *Worker) maintain(ctx context.Context) error {
 		return err
 	}
 	if err == nil {
-		if err = w.send(ctx, w.cfg.PublishChannel, "Ett nytt nummer av Kumpan-Posten finns att läsa: "+w.issueLink(i.ID)); err == nil {
+		if err = w.send(ctx, w.cfg.PublishChannel, "Ett nytt nummer av Kumpanposten finns att läsa: "+w.issueLink(i.ID)); err == nil {
 			if err = w.store.MarkNotified(i.ID); err != nil {
 				return err
 			}
@@ -178,7 +183,7 @@ func (w *Worker) maintain(ctx context.Context) error {
 		if sent {
 			continue
 		}
-		if err := w.send(ctx, editorID, "Fredag! Granska utkastet till Kumpan-Posten och publicera när det är klart: "+strings.TrimRight(w.cfg.BaseURL, "/")+"/draft"); err != nil {
+		if err := w.send(ctx, editorID, "Fredag! Granska utkastet till Kumpanposten och publicera när det är klart: "+strings.TrimRight(w.cfg.BaseURL, "/")+"/draft"); err != nil {
 			w.logger.Warn("editor reminder failed", "editor_id", editorID, "issue_id", draft.ID, "category", "delivery")
 			continue
 		}

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"log/slog"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -79,6 +80,47 @@ func TestWorkerGeneration(t *testing.T) {
 			}
 			if strings.Contains(logs.String(), "SECRET") || strings.Contains(logs.String(), a.Original) || strings.Contains(got.Error, "SECRET") {
 				t.Fatal("external content leaked")
+			}
+		})
+	}
+}
+
+func TestWorkerReporterDiagnostics(t *testing.T) {
+	for _, tc := range []struct {
+		name, response, want string
+		status               int
+	}{
+		{"authentication", `{"error":{"code":"invalid_api_key","message":"PRIVATE secret-key"}}`, "api_code=invalid_api_key", 401},
+		{"quota", `{"error":{"code":"insufficient_quota","message":"PRIVATE original question"}}`, "api_code=insufficient_quota", 429},
+		{"schema", `{"error":{"code":"invalid_json_schema","param":"text.format.schema","message":"PRIVATE original question"}}`, "api_param=text.format.schema", 400},
+		{"untrusted fields", `{"error":{"code":"PRIVATE","param":"PRIVATE","message":"PRIVATE"}}`, "api_code=unknown", 400},
+		{"bad generated JSON", "", `reason="invalid reporter JSON"`, 200},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s, _ := storeTestOpen(t)
+			a := storeTestSubmit(t, s, "PRIVATE original question")
+			reporter := testReporter(t, func(w http.ResponseWriter, r *http.Request) {
+				if tc.status == 200 {
+					reporterResponse(w, "completed", "not JSON")
+					return
+				}
+				w.WriteHeader(tc.status)
+				w.Write([]byte(tc.response))
+			})
+			var logs bytes.Buffer
+			worker := NewWorker(s, reporter, nil, WorkerConfig{}, slog.New(slog.NewTextHandler(&logs, nil)))
+			if err := worker.process(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(logs.String(), tc.want) {
+				t.Fatalf("missing diagnostic %q in %s", tc.want, logs.String())
+			}
+			if strings.Contains(logs.String(), "PRIVATE") || strings.Contains(logs.String(), "secret-key") || strings.Contains(logs.String(), "explicit-test-key") {
+				t.Fatal("private content leaked into logs")
+			}
+			got, err := s.GetArticle(a.ID)
+			if err != nil || got.Status != StatusFailed || strings.Contains(got.Error, "PRIVATE") {
+				t.Fatalf("unsafe persisted failure: %+v, %v", got, err)
 			}
 		})
 	}

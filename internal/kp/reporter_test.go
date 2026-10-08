@@ -79,6 +79,9 @@ func TestReporterRequestAndReport(t *testing.T) {
 		if request.Instructions != reporterPrompt || strings.Contains(request.Instructions, original) {
 			t.Error("instructions not separated from source")
 		}
+		if !strings.Contains(request.Instructions, "newspaper Kumpanposten") || !strings.Contains(request.Instructions, "source or interviewee, not the reporter") || !strings.Contains(request.Instructions, "Mention the colleague naturally in the story") {
+			t.Error("reporter must treat the colleague as a source, not the writer")
+		}
 		format := request.Text.Format
 		fields := []string{"headline", "body", "question", "signature", "signoff"}
 		if format.Type != "json_schema" || format.Name != "reporter" || !format.Strict || format.Schema.Type != "object" ||
@@ -133,7 +136,8 @@ func TestReporterQuestion(t *testing.T) {
 		t.Run(signoff, func(t *testing.T) {
 			r := testReporter(t, func(w http.ResponseWriter, req *http.Request) {
 				var request struct {
-					Input []struct{ Role, Content string }
+					Instructions string
+					Input        []struct{ Role, Content string }
 				}
 				if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
 					t.Error(err)
@@ -149,6 +153,9 @@ func TestReporterQuestion(t *testing.T) {
 				}
 				if len(input) != 2 || input["kind"] != KindQuestion || input["text"] != "En diskret fraga" {
 					t.Errorf("question request includes unexpected metadata: %v", input)
+				}
+				if !strings.Contains(request.Instructions, "signature field belongs to the person asking the question") || !strings.Contains(request.Instructions, "En fattig och känslig näsa") {
+					t.Error("signature must describe a fictional letter writer, not the columnist")
 				}
 				text, _ := json.Marshal(Generated{Headline: "  Fragespalten ", Body: " Prata enskilt. ", Question: " Hur tar jag upp saken? ", Signature: " Kaffekoppen ", Signoff: signoff})
 				reporterResponse(w, "completed", string(text))

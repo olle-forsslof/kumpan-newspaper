@@ -232,7 +232,7 @@ func currentDraft(tx *sql.Tx) (*Issue, error) {
 	if !errors.Is(err, sql.ErrNoRows) {
 		return i, err
 	}
-	result, err := tx.Exec("INSERT INTO kp_issues (title, created_at) VALUES (?, ?)", "Kumpan-Posten", time.Now().UTC())
+	result, err := tx.Exec("INSERT INTO kp_issues (title, created_at) VALUES (?, ?)", "Kumpanposten", time.Now().UTC())
 	if err != nil {
 		return nil, err
 	}
