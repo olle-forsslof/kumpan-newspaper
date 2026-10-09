@@ -125,7 +125,7 @@ func (a *AIImages) Generate(ctx context.Context, kind, prompt string) (ImageAsse
 	if strings.TrimSpace(a.apiKey) == "" {
 		return fail("image service not configured")
 	}
-	background, style := "opaque", "Black-and-white photography with subtle grain. Make it feel unnatural."
+	background, style := "opaque", "Black-and-white old-timey photography with subtle grain. High contrast. Photo copy"
 	if kind == "question" {
 		background, style = "transparent", "Drawing on a transparent background. No color. Pencil. Leonardo Da Vinci. Modigliani. Tove Janson"
 	}

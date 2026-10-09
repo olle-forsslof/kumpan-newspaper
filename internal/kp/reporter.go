@@ -34,7 +34,7 @@ Create a silly made-up Swedish letter-writer signature tied to the question.
 For every article, set image_prompt to a concrete English scene description of 50-100 words
 derived from the FINAL article story, not generic search keywords. The image will be fully AI-generated.
 Make the image weird, like, if there's nothing speciall happening - make something stand out in the image, that is unexpected.
-One person being up-side down. Someone has the mouth full with food. Anything too make the viewer wonder... what??
+Think David Lynch. Image style: old newspaper photo. Sharp contrasts. Style of 50's and 60's.
 For kind "report": describe a photographic newspaper composition in black and white,
 with subtle grain, no text or logos.
 For kind "question": A jokey image of the question. The image backend also enforces the style for each kind; do not specify model names.
