@@ -37,11 +37,7 @@ Make the image weird, like, if there's nothing speciall happening - make somethi
 One person being up-side down. Someone has the mouth full with food. Anything too make the viewer wonder... what??
 For kind "report": describe a photographic newspaper composition in black and white,
 with subtle grain, no text or logos.
-For kind "question": describe a childish unprofessional cartoon on a transparent
-background, with no colors, or text. raw, hand drawn and childish in the style. Make it weird.
-Use only generic fictional people and objects; never claim a depicted person is an actual coworker.
-Never include names, personal identifiers, company/customer/project names, emails, locations,
-or sensitive identifying details. The image backend also enforces the style for each kind; do not specify model names.
+For kind "question": A jokey image of the question. The image backend also enforces the style for each kind; do not specify model names.
 
 For every kind, avoid slurs, discrimination, and jokes targeting protected characteristics.
 A human editor ultimately checks the draft; do not claim it has already been reviewed.`

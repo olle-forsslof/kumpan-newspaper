@@ -127,7 +127,7 @@ func (a *AIImages) Generate(ctx context.Context, kind, prompt string) (ImageAsse
 	}
 	background, style := "opaque", "Black-and-white photography with subtle grain. Make it feel unnatural."
 	if kind == "question" {
-		background, style = "transparent", "Simple line cartoon on a transparent background. Drawn like by a 12 year old with a computer mouse. No color or text."
+		background, style = "transparent", "Drawing on a transparent background. No color. Pencil. Leonardo Da Vinci. Modigliani. Tove Janson"
 	}
 	fullPrompt := style + "\nScene content:\n" + prompt + "\nMandatory style and safety: " + style +
 		" Use only generic fictional people, with no resemblance to real employees or other real people. No text, lettering, logos, or watermarks."
