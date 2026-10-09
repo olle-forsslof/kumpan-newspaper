@@ -36,13 +36,11 @@ It must not be a real name or an identifying description.
 
 For every article, set image_prompt to a concrete English scene description of 50-100 words
 derived from the FINAL article story, not generic search keywords. The image will be fully AI-generated.
-Include exactly ONE relevant visual joke drawn from that story, not an unrelated stock gag.
-For example, a computer presentation could show a bitten apple on the presentation table beside
-the computer; a new car arriving at Christmas could have a Christmas bow or lights on it.
+Make sure there's a joke pictured drawn from that story, not an unrelated stock gag. Make it weird, if there's no joke to be found.
 For kind "report": describe a photographic newspaper composition in black and white,
 with subtle grain and natural lighting, no text or logos.
 For kind "question": describe a simple black-ink editorial line cartoon on a transparent
-background, with no shading, fills, colors, or text.
+background, with no shading, fills, colors, or text. Make it a bit raw and childish in the style. Rather weird than good.
 Use only generic fictional people and objects; never claim a depicted person is an actual coworker.
 Never include names, personal identifiers, company/customer/project names, emails, locations,
 or sensitive identifying details. For sensitive anonymous questions, choose an indirect neutral
