@@ -103,9 +103,9 @@ func TestImageGenerateStylesAndFiles(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
 					t.Error(err)
 				}
-				bg, style := "opaque", "Black-and-white editorial newspaper photography with subtle grain."
+				bg, style := "opaque", "Black-and-white old-timey photography with subtle grain. High contrast. Photo copy"
 				if kind == "question" {
-					bg, style = "transparent", "Simple black ink line cartoon"
+					bg, style = "transparent", "Drawing on a transparent background. No color."
 				}
 				for k, want := range map[string]any{"model": "test-model", "n": float64(1), "quality": "medium", "size": "1536x1024", "output_format": "png", "background": bg} {
 					if p[k] != want {
@@ -118,8 +118,19 @@ func TestImageGenerateStylesAndFiles(t *testing.T) {
 						t.Errorf("missing prompt constraint %q", want)
 					}
 				}
-				if kind == "question" && !strings.Contains(prompt, "No color, fills, shading, gradients, or text") {
-					t.Error("missing cartoon constraints")
+				artists := 0
+				for _, artist := range []string{"Leonardo da Vinci", "Amedeo Modigliani", "Tove Jansson", "Saul Steinberg", "Aubrey Beardsley", "Edward Gorey"} {
+					artists += strings.Count(prompt, "Visual influence: "+artist+".")
+				}
+				if kind == "question" {
+					if artists != 1 || strings.Count(prompt, "Visual influence:") != 1 {
+						t.Error("illustration must have exactly one artist influence")
+					}
+					if strings.Contains(prompt, "Pencil.") || strings.Contains(prompt, "No color, fills, shading, gradients, or text") {
+						t.Error("illustration medium is too restrictive")
+					}
+				} else if artists != 0 || strings.Contains(prompt, "Visual influence:") {
+					t.Error("news photography must not have an artist influence")
 				}
 				writeImageResponse(w, raw)
 			})

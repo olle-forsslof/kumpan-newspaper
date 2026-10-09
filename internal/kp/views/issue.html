@@ -1,7 +1,8 @@
 {{define "issue"}}{{template "header" .}}
 {{if .Issue}}
 <header class="issue-heading">
-  {{if .Draft}}<p class="eyebrow">Redaktionens utkast · Inte publicerat</p>{{else}}<p class="eyebrow">Publicerat {{date .Issue.PublishedAt}}</p>{{end}}
+  {{if .Draft}}<p class="eyebrow">Redaktionens utkast · Inte publicerat</p>{{else}}<p class="eyebrow">Publicerat {{date
+    .Issue.PublishedAt}}</p>{{end}}
   <h1>{{if .Draft}}Veckans utkast{{else}}Nummer {{.Issue.ID}}{{end}}</h1>
 </header>
 {{if .Draft}}<p class="notice">Granska artiklarna innan publicering. Ett publicerat nummer kan inte ändras.</p>{{end}}
@@ -38,60 +39,72 @@
 </section>
 {{end}}
 {{else}}
-<section class="notice"><h1>Första numret är på väg</h1><p>Inga nummer har publicerats ännu. Välkommen tillbaka snart.</p></section>
+<section class="notice">
+  <h1>Första numret är på väg</h1>
+  <p>Inga nummer har publicerats ännu. Välkommen tillbaka snart.</p>
+</section>
 {{end}}
 {{template "footer" .}}{{end}}
 
 {{define "article"}}
-  <article class="article">
-    {{if .Draft}}<p class="eyebrow">{{status .Status}}</p>{{end}}
-    {{if eq .Status "ready"}}
-      {{if eq .Kind "question"}}
-      <h3>{{.Headline}}</h3>
-      {{template "article-image" .}}
-      <blockquote>
-        <p class="text">{{.Question}}</p>
-        <footer class="letter-signature">Signaturen {{.Signature}}</footer>
-      </blockquote>
-      {{else}}<h2>{{.Headline}}</h2>
-      {{template "article-image" .}}{{end}}
-      <div class="text">{{.Body}}</div>
-      {{if .Signoff}}<p class="text">{{.Signoff}}</p>{{end}}
-    {{else if .Draft}}
-      {{if eq .Kind "question"}}<h3>Anonym fråga</h3>{{else}}<h2>Nyhetsartikel</h2>{{end}}
-      {{if eq .Status "failed"}}<p>Artikeln kunde inte bearbetas. Försök igen eller ta bort bidraget.</p>{{else}}<p>Artikeln väntar på att bli klar.</p>{{end}}
-    {{end}}
-    {{if .Draft}}
-    <div class="actions">
-      <a class="action" href="/editor/article/{{.ID}}">{{if eq .Status "ready"}}Redigera{{else}}Visa original{{end}}</a>
-      {{if eq .Status "failed"}}<form method="post" action="/editor/article/{{.ID}}/retry">
-        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <input type="hidden" name="revision" value="{{.Revision}}">
-        <button type="submit">Försök igen</button>
-      </form>{{end}}
-      <form method="post" action="/editor/article/{{.ID}}/remove">
-        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <input type="hidden" name="revision" value="{{.Revision}}">
-        <button type="submit" class="quiet">Ta bort bidrag</button>
-      </form>
-    </div>
-    {{end}}
-  </article>
+<article class="article">
+  {{if .Draft}}<p class="eyebrow">{{status .Status}}</p>{{end}}
+  {{if eq .Status "ready"}}
+  {{if eq .Kind "question"}}
+  <h3>{{.Headline}}</h3>
+  {{template "article-image" .}}
+  <blockquote>
+    <p class="text">{{.Question}}</p>
+    <footer class="letter-signature">{{.Signature}}</footer>
+  </blockquote>
+  {{else}}<h2>{{.Headline}}</h2>
+  {{template "article-image" .}}{{end}}
+  <div class="text">{{.Body}}</div>
+  {{if .Signoff}}<p class="text">{{.Signoff}}</p>{{end}}
+  {{else if .Draft}}
+  {{if eq .Kind "question"}}<h3>Anonym fråga</h3>{{else}}<h2>Nyhetsartikel</h2>{{end}}
+  {{if eq .Status "failed"}}<p>Artikeln kunde inte bearbetas. Försök igen eller ta bort bidraget.</p>{{else}}<p>Artikeln
+    väntar på att bli klar.</p>{{end}}
+  {{end}}
+  {{if .Draft}}
+  <div class="actions">
+    <a class="action" href="/editor/article/{{.ID}}">{{if eq .Status "ready"}}Redigera{{else}}Visa original{{end}}</a>
+    {{if eq .Status "failed"}}<form method="post" action="/editor/article/{{.ID}}/retry">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="revision" value="{{.Revision}}">
+      <button type="submit">Försök igen</button>
+    </form>{{end}}
+    <form method="post" action="/editor/article/{{.ID}}/remove">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="revision" value="{{.Revision}}">
+      <button type="submit" class="quiet">Ta bort bidrag</button>
+    </form>
+  </div>
+  {{end}}
+</article>
 {{end}}
 
 {{define "article-image"}}
-{{with imageView .ID .Image .ImagePriority .ImageSizes}}{{template "image" .}}{{else}}{{template "photo" (photoView .Photo .ImagePriority .ImageSizes)}}{{end}}
+{{with imageView .ID .Image .ImagePriority .ImageSizes}}{{template "image" .}}{{else}}{{template "photo" (photoView
+.Photo .ImagePriority .ImageSizes)}}{{end}}
 {{end}}
 
 {{define "image"}}{{if .}}
 <figure class="article-image">
-  <img src="{{assetURL .ArticleID .ImageAsset 800}}" srcset="{{assetURL .ArticleID .ImageAsset 400}} 400w, {{assetURL .ArticleID .ImageAsset 800}} 800w, {{assetURL .ArticleID .ImageAsset 1536}} 1536w" sizes="{{.Sizes}}" width="{{.Width}}" height="{{.Height}}" alt="" {{if .Priority}}loading="eager" fetchpriority="high"{{else}}loading="lazy"{{end}}>
+  <img src="{{assetURL .ArticleID .ImageAsset 800}}"
+    srcset="{{assetURL .ArticleID .ImageAsset 400}} 400w, {{assetURL .ArticleID .ImageAsset 800}} 800w, {{assetURL .ArticleID .ImageAsset 1536}} 1536w"
+    sizes="{{.Sizes}}" width="{{.Width}}" height="{{.Height}}" alt="" {{if .Priority}}loading="eager"
+    fetchpriority="high" {{else}}loading="lazy" {{end}}>
 </figure>
 {{end}}{{end}}
 
 {{define "photo"}}{{if .}}
 <figure class="article-photo">
-  <img src="{{imageURL .Photo 800}}" srcset="{{imageURL .Photo 400}} 400w, {{imageURL .Photo 800}} 800w, {{imageURL .Photo 1200}} 1200w" sizes="{{.Sizes}}" width="1200" height="800" alt="{{.Alt}}" {{if .Priority}}loading="eager" fetchpriority="high"{{else}}loading="lazy"{{end}}>
-  <figcaption>Foto: <a href="{{attributionURL .PhotographerURL}}">{{.Photographer}}</a> på <a href="{{attributionURL .PageURL}}">Unsplash</a></figcaption>
+  <img src="{{imageURL .Photo 800}}"
+    srcset="{{imageURL .Photo 400}} 400w, {{imageURL .Photo 800}} 800w, {{imageURL .Photo 1200}} 1200w"
+    sizes="{{.Sizes}}" width="1200" height="800" alt="{{.Alt}}" {{if .Priority}}loading="eager" fetchpriority="high"
+    {{else}}loading="lazy" {{end}}>
+  <figcaption>Foto: <a href="{{attributionURL .PhotographerURL}}">{{.Photographer}}</a> på <a
+      href="{{attributionURL .PageURL}}">Unsplash</a></figcaption>
 </figure>
 {{end}}{{end}}

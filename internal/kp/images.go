@@ -13,6 +13,7 @@ import (
 	"image/png"
 	"io"
 	"math"
+	randv2 "math/rand/v2"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,6 +24,15 @@ import (
 )
 
 const imageResponseLimit = 32 * 1024 * 1024
+
+var illustrationArtists = [...]string{
+	"Leonardo da Vinci",
+	"Amedeo Modigliani",
+	"Tove Jansson",
+	"Saul Steinberg",
+	"Aubrey Beardsley",
+	"Edward Gorey",
+}
 
 type ImageAsset struct {
 	Name          string
@@ -127,10 +137,13 @@ func (a *AIImages) Generate(ctx context.Context, kind, prompt string) (ImageAsse
 	}
 	background, style := "opaque", "Black-and-white old-timey photography with subtle grain. High contrast. Photo copy"
 	if kind == "question" {
-		background, style = "transparent", "Drawing on a transparent background. No color. Pencil. Leonardo Da Vinci. Modigliani. Tove Janson"
+		background, style = "transparent", "Drawing on a transparent background. No color."
 	}
 	fullPrompt := style + "\nScene content:\n" + prompt + "\nMandatory style and safety: " + style +
 		" Use only generic fictional people, with no resemblance to real employees or other real people. No text, lettering, logos, or watermarks."
+	if kind == "question" {
+		fullPrompt += "\nVisual influence: " + illustrationArtists[randv2.IntN(len(illustrationArtists))] + "."
+	}
 	body, err := json.Marshal(struct {
 		Model        string `json:"model"`
 		Prompt       string `json:"prompt"`
