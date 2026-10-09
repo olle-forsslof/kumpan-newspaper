@@ -1,6 +1,7 @@
 package kp_test
 
 import (
+	"bytes"
 	"context"
 	"crypto"
 	"crypto/hmac"
@@ -14,9 +15,12 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -41,7 +45,7 @@ func TestIntegrationAuthSubmissionAndPublication(t *testing.T) {
 		BaseURL: "https://kp.example.test", WorkspaceID: "Ttest",
 		SigningSecret: "test-signing-secret", ClientID: "client", ClientSecret: "test-client-secret",
 		SessionSecret: strings.Repeat("s", 32), EditorIDs: []string{"Ueditor"},
-		UnsplashAccessKey: "test-unsplash-key",
+		ImageDirectory: t.TempDir(),
 	}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -348,29 +352,54 @@ func TestIntegrationAuthSubmissionAndPublication(t *testing.T) {
 	if err != nil || stillDraft.PublishedAt != nil {
 		t.Fatalf("stale review published issue: %+v, error %v", stillDraft, err)
 	}
-	imageForm := url.Values{"csrf_token": {readerCSRF}, "revision": {strconv.Itoa(updated.Revision)}, "image_query": {"coffee cups"}}
+	const imagePrompt = "Two colleagues sharing coffee beside an open office window."
+	imageEdit := request(http.MethodGet, editorPath, nil, editor, http.StatusOK)
+	if !strings.Contains(imageEdit.Body.String(), `name="image_prompt"`) {
+		t.Fatal("editor missing image generation form")
+	}
+	imageForm := url.Values{"csrf_token": {readerCSRF}, "revision": {strconv.Itoa(updated.Revision)}, "image_prompt": {imagePrompt}}
 	request(http.MethodPost, editorPath+"/image", imageForm, reader, http.StatusForbidden)
 	imageForm.Set("csrf_token", "invalid")
 	request(http.MethodPost, editorPath+"/image", imageForm, editor, http.StatusForbidden)
 	imageForm.Set("csrf_token", form.Get("csrf_token"))
 	request(http.MethodPost, editorPath+"/image", imageForm, editor, http.StatusSeeOther)
-	image, err := store.ClaimNextImage()
-	if err != nil || image.ID != question.ID || image.ImageQuery != "coffee cups" {
-		t.Fatalf("image was not queued: %+v, %v", image, err)
+	imageJob, err := store.ClaimNextImage()
+	if err != nil || imageJob == nil || imageJob.ID != question.ID || imageJob.ImagePrompt != imagePrompt || imageJob.Status != kp.StatusReady {
+		t.Fatalf("image was not queued: %+v, %v", imageJob, err)
 	}
-	photo := kp.Photo{
-		ID: "test-photo", URL: "https://images.unsplash.com/photo-fixture?ixid=keep", Alt: "Coffee cups",
-		Photographer: "Test Photographer", PhotographerURL: "https://unsplash.com/@test-photographer",
-		PageURL: "https://unsplash.com/photos/test-photo", DownloadURL: "https://api.unsplash.com/photos/test-photo/download",
-		Width: 1200, Height: 800,
+	asset := kp.ImageAsset{Name: "0123456789abcdef0123456789abcdef.png", Width: 1536, Height: 1024}
+	var pixels bytes.Buffer
+	if err := png.Encode(&pixels, image.NewNRGBA(image.Rect(0, 0, 16, 16))); err != nil {
+		t.Fatal(err)
 	}
-	if err := store.CompleteImage(image.ID, image.Revision, photo); err != nil {
+	for _, name := range []string{asset.Name, asset.Name[:32] + "-400.png", asset.Name[:32] + "-800.png"} {
+		if err := os.WriteFile(filepath.Join(cfg.ImageDirectory, name), pixels.Bytes(), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.CompleteImage(imageJob.ID, imageJob.ImageRevision, asset); err != nil {
 		t.Fatal(err)
 	}
 	updated, err = store.GetArticle(question.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if updated.Image == nil || *updated.Image != asset || updated.ImageStatus != kp.StatusReady || updated.ImagePrompt != imagePrompt || updated.Photo != nil {
+		t.Fatalf("incorrect generated image metadata: %+v", updated)
+	}
+	imagePath := fmt.Sprintf("/images/%d/%s", question.ID, asset.Name)
+	request(http.MethodGet, imagePath, nil, reader, http.StatusForbidden)
+	request(http.MethodGet, imagePath, nil, nil, http.StatusSeeOther)
+	checkImage := func(cookie *http.Cookie) {
+		t.Helper()
+		for _, query := range []string{"", "?w=400", "?w=800", "?w=1536"} {
+			w := request(http.MethodGet, imagePath+query, nil, cookie, http.StatusOK)
+			if !bytes.Equal(w.Body.Bytes(), pixels.Bytes()) || w.Header().Get("Content-Type") != "image/png" || w.Header().Get("Cache-Control") != "private, no-store" || w.Header().Get("X-Content-Type-Options") != "nosniff" {
+				t.Errorf("generated image response %s: %v", imagePath+query, w.Header())
+			}
+		}
+	}
+	checkImage(editor)
 	currentDraft := request(http.MethodGet, "/draft", nil, editor, http.StatusOK)
 	publishForm.Set("review", hidden(currentDraft, "review"))
 	if publishForm.Get("review") == oldReview {
@@ -380,6 +409,7 @@ func TestIntegrationAuthSubmissionAndPublication(t *testing.T) {
 	if publication.Header().Get("Location") != issuePath {
 		t.Fatal("publication did not redirect to the published issue")
 	}
+	checkImage(reader)
 	for _, path := range []string{"/", issuePath, "/archive"} {
 		w := request(http.MethodGet, path, nil, reader, http.StatusOK)
 		body := w.Body.String()
@@ -395,8 +425,8 @@ func TestIntegrationAuthSubmissionAndPublication(t *testing.T) {
 		} else if !strings.Contains(body, redactedQuestion) || !strings.Contains(body, form.Get("heading")) || !strings.Contains(body, form.Get("body")) || !strings.Contains(body, "Ett nytt trad") {
 			t.Fatalf("published %s missing reviewed content", path)
 		}
-		if path != "/archive" && (!strings.Contains(body, "images.unsplash.com/photo-fixture") || !strings.Contains(body, "Test Photographer") || strings.Contains(body, "Illustrationsbild")) {
-			t.Fatal("published image or attribution missing")
+		if path != "/archive" && (!strings.Contains(body, imagePath+"?w=800") || strings.Contains(body, "images.unsplash.com") || strings.Contains(body, "Illustrationsbild")) {
+			t.Fatal("published generated image missing or has legacy attribution")
 		}
 		request(http.MethodGet, path, nil, nil, http.StatusSeeOther)
 	}

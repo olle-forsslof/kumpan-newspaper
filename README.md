@@ -30,11 +30,11 @@ Lokal utveckling kan använda `BASE_URL=http://localhost:8080`. Slack behöver e
 | `SESSION_SECRET` | Obligatorisk slumpmässig hemlighet på minst 32 byte. |
 | `OPENAI_API_KEY` | Obligatorisk OpenAI API-nyckel. |
 | `OPENAI_MODEL` | `gpt-4.1-mini`; kan ersättas med en modell som stöder Responses API och Structured Outputs. |
-| `UNSPLASH_ACCESS_KEY` | Valfri Access Key från Unsplash-applikationen. Aktiverar automatisk bildsökning och bildkontroller i redaktörsvyn. Ingen Secret Key behövs. |
+| `OPENAI_IMAGE_MODEL` | `gpt-image-2.5-flare`; bildmodell för Images API. Använder samma `OPENAI_API_KEY` som textreportern. |
 | `SLACK_PUBLISH_CHANNEL` | Obligatoriskt kanal-ID för publiceringslänkar. Bjud in boten till kanalen. |
 | `ADMIN_USERS` | Obligatorisk kommaseparerad lista med minst ett Slack-användar-ID. Mellanslag runt ID:n tas bort och dubbletter slås ihop. |
 
-Tom `PORT` och `OPENAI_MODEL` använder standardvärdena. Obligatoriska värden, hemligheter och modellnamn får inte innehålla whitespace. Lägg inte hemligheter i versionshanteringen.
+Tom `PORT`, `OPENAI_MODEL` och `OPENAI_IMAGE_MODEL` använder standardvärdena. Obligatoriska värden, hemligheter och modellnamn får inte innehålla whitespace. Lägg inte hemligheter i versionshanteringen. `UNSPLASH_ACCESS_KEY` används inte längre och kan tas bort från Coolify.
 
 ## Slack-app
 
@@ -60,15 +60,19 @@ Nyhetsartiklar skrivs ur reporterns perspektiv. Kollegan är en källa som kan n
 
 ## Artikelbilder
 
-Registrera en applikation på [Unsplash Developers](https://unsplash.com/oauth/applications) och lägg dess Access Key i Coolify som runtime-variabel `UNSPLASH_ACCESS_KEY`. Utan nyckeln fungerar textflödet som vanligt. Unsplash demo-läge tillåter 50 API-anrop per timme; ansök om produktionstillgång inför skarp användning.
+Nya bilder genereras helt av OpenAI. Sätt `OPENAI_IMAGE_MODEL=gpt-image-2.5-flare` som runtime-variabel i Coolify och låt `OPENAI_MODEL` fortsätta välja textmodell, exempelvis `gpt-4.1-mini`. Projektets API-nyckel måste ha tillgång till både text- och bildmodellen. Ingen Unsplash-integration eller bildredigering av stockfoton görs.
 
-OpenAI returnerar en kort engelsk sökfras tillsammans med nya artiklar. Instruktionen använder allmänna, fotograferbara ämnen utan namn eller kunduppgifter. Endast sökfrasen skickas till Unsplash, inte artikeltexten eller avsändarmetadata. E-postadresser, URL:er och andra sökfraser med otillåtna tecken stoppas före sökningen. Detta är inte en garanti för att AI aldrig väljer ett olämpligt ämne; redaktören granskar både bilden och texten.
+Textreportern skriver en konkret engelsk bildprompt tillsammans med artikeln. Scenen får en liten visuell poäng kopplad till berättelsen, exempelvis ett äpple med ett bettmärke bredvid en presentationsdator eller juldekorationer på en ny bil. Prompten ska undvika personnamn, kunduppgifter och andra identifierande detaljer. Redaktionell granskning behövs fortfarande; AI-instruktioner är ingen garanti för lämpligt innehåll.
 
-Workern väljer automatiskt ett sökresultat i liggande format med `content_filter=high`. Det är ett extra filter, inte en garanti för lämpligt innehåll. Bildsökning och obligatorisk download-tracking sker i bakgrunden. En bild visas först efter lyckad tracking. Bildfel blockerar inte färdiga artiklar eller publicering. Redaktören kan ändra sökfrasen, hämta en annan bild eller ta bort bilden. När en ersättning misslyckas ligger den tidigare bilden kvar. Att ta bort bilden avbryter även en väntande bildhämtning.
+Workern anropar Images API i bakgrunden med en bild per artikel, kvalitet `medium` och storlek `1536x1024`. Nyheter får svartvit tidningsfotografi med lätt kornighet. Frågespalten får enkla svarta linjeteckningar utan färg, skuggning eller text, med transparent bakgrund så att det gula fältet syns igenom. Bildfilerna bearbetas även lokalt: nyhetsbilder sparas som gråskale-JPEG och teckningar som svart PNG med bevarad transparens.
 
-Bildens ID, URL och fotografuppgifter sparas med artikeln; sidvisningar gör inga nya API-sökningar. Bilder hotlinkas från Unsplash med bibehållen `ixid` och synliga fotograf-/Unsplash-länkar enligt [API-riktlinjerna](https://unsplash.com/documentation). Ingen "Illustrationsbild"-etikett läggs till. Webbläsaren hämtar bildfiler direkt från Unsplash, så leverantören får besökarens IP-adress, men appen skickar ingen referer-URL. Publicerade bildval kan inte ändras, men tillgängligheten på Unsplashs CDN ligger utanför appens kontroll.
+Bildfel blockerar inte färdiga artiklar eller publicering. Redaktören kan ändra bildprompten, generera en ny bild eller ta bort bilden. När en ersättning misslyckas ligger den tidigare bilden kvar. Varje nytt försök kan medföra en ny API-kostnad. Avbrutna eller osäkra bildförsök markeras som misslyckade vid omstart och kräver ett manuellt nytt försök, så att en potentiellt redan debiterad begäran inte upprepas automatiskt. En färdig, sparad bild kan kopplas till artikeln även om avstängning precis har inletts. Textredigering under bildgenerering utlöser inte en extra bildbeställning.
 
-Befintliga artiklar bevaras utan att skrivas om. För äldre utkast anger redaktören en sökfras och väljer **Hämta bild**. Nya artiklar får sökfrasen automatiskt. Bildhämtning kan förbruka fler än ett API-anrop per foto; sökning och tracking räknas mot API-gränsen.
+Bilder sparas i katalogen `images` bredvid databasen, alltså `/data/images` med Docker-standardvärdet. Den befintliga `/data`-volymen lagrar både databas och bilder. Varje bild får ett unikt namn och varianter på 400 och 800 pixlar. Filinnehåll och katalogposter synkas innan databasen refererar till dem. Sidvisningar gör inga nya genereringsanrop. Bildrutten kräver Slack-inloggning; utkastbilder kräver dessutom redaktörsbehörighet. Filkatalogen exponeras inte direkt som statisk lagring.
+
+Befintliga texter och publicerade bildval bevaras. För äldre utkast anger redaktören en scen i **Bildprompt** och väljer **Generera bild**. Tidigare Unsplash-bilder kan ligga kvar tills de ersätts, och visas fortsatt med sina obligatoriska fotograf-/Unsplash-länkar. Ingen Unsplash-sökning eller download-tracking sker längre. Nya genererade bilder får inga fotografkrediter eller "Illustrationsbild"-etiketter.
+
+Refererade bilder skrivs aldrig över. När en bild ersätts eller tas bort slutar den gamla filen att vara åtkomlig via appen, men filen behålls på disk. Automatisk rensning av äldre filer ingår inte. Misslyckade eller föråldrade nya resultat som säkert inte refereras av databasen kan städas bort direkt.
 
 Fredagar från kl. 09.00 i `Europe/Stockholm` får redaktörer en påminnelse om inget nummer har publicerats den dagen. Ingen automatisk publicering sker. Redaktörer kan publicera manuellt vilken dag som helst när alla kvarvarande artiklar är färdiga. Publicerat innehåll är oföränderligt; arkivets utseende kan ändras när HTML-mallarna ändras.
 
@@ -88,13 +92,14 @@ Inloggningen tillåter bara den konfigurerade Slack-arbetsytan. Sessioner gälle
 | `GET /` | Senaste publicerade numret, för inloggade läsare. |
 | `GET /archive` | Arkiv för inloggade läsare. |
 | `GET /issues/{id}` | Publicerat nummer för inloggade läsare. |
+| `GET /images/{id}/{name}` | Genererad bild kopplad till artikeln. Publicerade bilder för läsare; utkastbilder endast för redaktörer. `w=400`, `800` eller `1536` väljer en bildvariant. |
 | `GET /draft` | Aktuellt utkast, endast redaktörer i `ADMIN_USERS`. |
 | `GET /editor/article/{id}` | Redigera artikel. |
 | `POST /editor/article/{id}/save` | Spara redigering. |
 | `POST /editor/article/{id}/remove` | Ta bort artikel från utkastet. |
 | `POST /editor/article/{id}/retry` | Försök bearbeta en misslyckad artikel igen. |
-| `POST /editor/article/{id}/image` | Köa en bildsökning med en redigerbar sökfras. |
-| `POST /editor/article/{id}/image/remove` | Ta bort bilden och avbryt väntande bildsökning. |
+| `POST /editor/article/{id}/image` | Köa en bildgenerering med en redigerbar scenprompt. |
+| `POST /editor/article/{id}/image/remove` | Ta bort bilden och avbryt väntande bildgenerering. |
 | `POST /editor/issues/{id}/publish` | Bekräfta och publicera nummer. |
 
 Alla `/editor/`-rutter kräver redaktörsbehörighet. POST-formulär kräver `csrf_token`; artikeländringar kräver även aktuell `revision`, och publicering kräver `confirm=yes` samt utkastets `review`-värde. Om artiklar har tillkommit eller ändrats sedan utkastet öppnades måste redaktören granska det igen. Detta är formulärrutter, inte ett separat publikt JSON-API.
@@ -123,11 +128,12 @@ SQLite CLI finns i containern. Skapa en läskonsistent backup med SQLite, inte m
 ```sh
 docker exec kp sqlite3 /data/kp.db '.backup /data/kp-backup.db'
 docker cp kp:/data/kp-backup.db ./kp-backup.db
+docker cp kp:/data/images ./kp-backup-images
 ```
 
-Flytta backupen till skyddad lagring utanför servern och prova återställning regelbundet mot en separat instans. Backuper innehåller privata bidrag och frågor. Återställ produktionsdata med appen stoppad; blanda aldrig återställd databas med gamla WAL/SHM-filer. Vid filbaserad kopiering av en stoppad installation måste hela SQLite-katalogen, inklusive eventuella WAL-filer, följa med. Inga backup- eller återställningsskript körs automatiskt.
+Kopiera databasen först och bildkatalogen därefter; bilderna är oföränderliga, så katalogkopian innehåller även alla filer som databasögonblicket refererar till. Flytta båda delarna till skyddad lagring utanför servern och prova återställning mot en separat instans. Backuper innehåller privata bidrag, frågor och bilder. Återställ båda delarna med appen stoppad och rätt ägare, UID/GID 10001 i Docker. Blanda aldrig återställd databas med gamla WAL/SHM-filer. Vid filbaserad kopiering av en stoppad installation måste hela SQLite-katalogen, inklusive eventuella WAL-filer, följa med. Inga backup- eller återställningsskript körs automatiskt.
 
-Bildfunktionen uppgraderar KP-databasen från schema 1 till 2 vid start, i en transaktion. Befintligt innehåll och publiceringstidpunkter bevaras. Ta en backup före denna deploy. Den äldre appversionen kan inte öppna schema 2; en rollback till den kräver en kompatibel backup, inte bara byte av containerimage.
+Den här versionen uppgraderar KP-databasen från schema 1 eller 2 till 3 vid start, i en transaktion. Befintligt innehåll och publiceringstidpunkter bevaras. Gamla ofärdiga Unsplash-jobb avbryts utan att skapa betalda AI-bildbeställningar från tidigare sökord. Ta en backup före deploy. Äldre appversioner kan inte öppna schema 3; en rollback till dem kräver en kompatibel backup, inte bara byte av containerimage.
 
 ## Utveckling
 

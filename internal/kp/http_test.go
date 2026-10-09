@@ -33,6 +33,7 @@ func TestHTTPRoutesAndGates(t *testing.T) {
 		status       int
 	}{
 		{"GET", "/", 401}, {"GET", "/archive", 401}, {"GET", "/issues/1", 401},
+		{"GET", "/images/1/0123456789abcdef0123456789abcdef.jpg", 401},
 		{"GET", "/draft", 403}, {"GET", "/editor/article/1", 403},
 		{"POST", "/editor/article/1/save", 403}, {"POST", "/editor/article/1/remove", 403},
 		{"POST", "/editor/article/1/retry", 403}, {"POST", "/editor/issues/1/publish", 403},
@@ -91,17 +92,53 @@ func TestHTTPHealth(t *testing.T) {
 	}
 }
 
-func TestHTTPImageConfiguration(t *testing.T) {
+func TestHTTPImageDirectoryAndProtectedFiles(t *testing.T) {
 	s, _ := storeTestOpen(t)
 	a := storeTestReady(t, s, "Article")
-	for _, key := range []string{"", "test-unsplash-key"} {
-		h := NewHTTPHandler(s, httpTestAccess{webTestAccess{reader: true, editor: true}}, Config{UnsplashAccessKey: key})
-		r := httptest.NewRequest("GET", "/editor/article/"+strconv.Itoa(a.ID), nil)
-		w := commandTestServe(h, r)
-		if w.Code != http.StatusOK || strings.Contains(w.Body.String(), `name="image_query"`) != (key != "") {
-			t.Fatalf("image configuration mismatch: %d %s", w.Code, w.Body.String())
+	asset := storeTestImage()
+	if err := s.QueueImage(a.ID, a.Revision, "An office desk beside a large window."); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := s.ClaimNextImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteImage(a.ID, claim.ImageRevision, asset); err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	contents := webTestImageFile(t, directory, asset.Name)
+	for _, width := range []int{400, 800} {
+		webTestImageFile(t, directory, imageVariantName(asset.Name, width))
+	}
+	path := "/images/" + strconv.Itoa(a.ID) + "/" + asset.Name
+	reader := NewHTTPHandler(s, httpTestAccess{webTestAccess{reader: true}}, Config{ImageDirectory: directory})
+	editor := NewHTTPHandler(s, httpTestAccess{webTestAccess{reader: true, editor: true}}, Config{ImageDirectory: directory})
+	edit := commandTestServe(editor, httptest.NewRequest("GET", "/editor/article/"+strconv.Itoa(a.ID), nil))
+	if edit.Code != http.StatusOK || !strings.Contains(edit.Body.String(), `name="image_prompt"`) {
+		t.Fatal("image generation form is not enabled")
+	}
+	if w := commandTestServe(reader, httptest.NewRequest("GET", path, nil)); w.Code != http.StatusForbidden {
+		t.Fatalf("reader saw draft image: %d", w.Code)
+	}
+	check := func(h http.Handler) {
+		t.Helper()
+		for _, query := range []string{"", "?w=400", "?w=800", "?w=1536"} {
+			w := commandTestServe(h, httptest.NewRequest("GET", path+query, nil))
+			if w.Code != http.StatusOK || !bytes.Equal(w.Body.Bytes(), contents) || w.Header().Get("Content-Type") != "image/jpeg" || w.Header().Get("Cache-Control") != "private, no-store" || w.Header().Get("X-Content-Type-Options") != "nosniff" {
+				t.Fatalf("protected image response: %d %v", w.Code, w.Header())
+			}
 		}
 	}
+	check(editor)
+	wrongDirectory := NewHTTPHandler(s, httpTestAccess{webTestAccess{reader: true, editor: true}}, Config{ImageDirectory: t.TempDir()})
+	if w := commandTestServe(wrongDirectory, httptest.NewRequest("GET", path, nil)); w.Code != http.StatusNotFound {
+		t.Fatalf("image served outside configured directory: %d", w.Code)
+	}
+	if _, err := s.Publish(a.IssueID); err != nil {
+		t.Fatal(err)
+	}
+	check(reader)
 }
 
 func TestHTTPHealthDeadline(t *testing.T) {

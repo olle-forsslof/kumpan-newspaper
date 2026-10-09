@@ -18,7 +18,7 @@ func NewHTTPHandler(store *Store, access AuthRoutes, cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	access.Register(mux)
 	web := NewWeb(store, access)
-	web.imagesEnabled = cfg.UnsplashAccessKey != ""
+	web.imageDirectory = cfg.ImageDirectory
 	web.Register(mux)
 	mux.Handle("POST /api/slack/commands", NewCommandHandler(store, cfg.SigningSecret, cfg.WorkspaceID))
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {

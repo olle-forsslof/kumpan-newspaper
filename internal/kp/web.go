@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/olle-forsslof/kumpan-newspaper/internal/auth"
@@ -23,10 +24,10 @@ type Access interface {
 }
 
 type Web struct {
-	store         *Store
-	access        Access
-	views         *template.Template
-	imagesEnabled bool
+	store          *Store
+	access         Access
+	views          *template.Template
+	imageDirectory string
 }
 
 type webPage struct {
@@ -42,7 +43,6 @@ type webPage struct {
 	Draft          bool
 	Message        string
 	Review         string
-	ImagesEnabled  bool
 }
 
 type webArticle struct {
@@ -57,6 +57,25 @@ type webPhoto struct {
 	*Photo
 	Priority bool
 	Sizes    string
+}
+
+type webImage struct {
+	*ImageAsset
+	ArticleID int
+	Priority  bool
+	Sizes     string
+}
+
+func assetURL(id int, asset *ImageAsset, width int) string {
+	if id < 1 || asset == nil || ValidateImageAsset(*asset) != nil {
+		return ""
+	}
+	switch width {
+	case 0, 400, 800, 1536:
+		return "/images/" + strconv.Itoa(id) + "/" + asset.Name + "?w=" + strconv.Itoa(width)
+	default:
+		return ""
+	}
 }
 
 func imageURL(photo *Photo, width int) string {
@@ -95,6 +114,13 @@ func NewWeb(store *Store, access Access) *Web {
 		panic("Stockholm timezone unavailable")
 	}
 	views := template.Must(template.New("kp").Funcs(template.FuncMap{
+		"assetURL": assetURL,
+		"imageView": func(id int, asset *ImageAsset, priority bool, sizes string) *webImage {
+			if assetURL(id, asset, 800) == "" {
+				return nil
+			}
+			return &webImage{ImageAsset: asset, ArticleID: id, Priority: priority, Sizes: sizes}
+		},
 		"imageURL":       imageURL,
 		"attributionURL": attributionURL,
 		"photoView": func(photo *Photo, priority bool, sizes string) *webPhoto {
@@ -130,6 +156,7 @@ func (web *Web) Register(mux *http.ServeMux) {
 	reader("GET /{$}", web.home)
 	reader("GET /archive", web.archive)
 	reader("GET /issues/{id}", web.issue)
+	reader("GET /images/{id}/{name}", web.image)
 	editor("GET /draft", web.draft)
 	editor("GET /editor/article/{id}", web.edit)
 	editor("POST /editor/article/{id}/save", web.save)
@@ -149,7 +176,6 @@ func (web *Web) private(next http.Handler) http.Handler {
 
 func (web *Web) render(w http.ResponseWriter, r *http.Request, status int, view string, page webPage) {
 	page.User = auth.UserFrom(r.Context())
-	page.ImagesEnabled = web.imagesEnabled
 	for _, article := range page.Articles {
 		item := webArticle{Article: article, Draft: page.Draft, CSRF: page.User.CSRF}
 		if article.Kind == KindQuestion {
@@ -169,7 +195,8 @@ func (web *Web) render(w http.ResponseWriter, r *http.Request, status int, view 
 					item.ImageSizes = "(max-width: 72rem) 92vw, 66rem"
 				}
 			}
-			if !priorityAssigned && item.Status == "ready" && item.Photo != nil && ValidatePhoto(*item.Photo) == nil {
+			hasImage := assetURL(item.ID, item.Image, 800) != "" || (item.Photo != nil && ValidatePhoto(*item.Photo) == nil)
+			if !priorityAssigned && item.Status == "ready" && hasImage {
 				item.ImagePriority = true
 				priorityAssigned = true
 			}
@@ -297,6 +324,74 @@ func (web *Web) editable(w http.ResponseWriter, r *http.Request) (*Article, bool
 	return article, true
 }
 
+func (web *Web) image(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id < 1 {
+		http.NotFound(w, r)
+		return
+	}
+	article, err := web.store.GetArticle(id)
+	if err != nil || article == nil || article.Status == "removed" {
+		http.NotFound(w, r)
+		return
+	}
+	issue, err := web.store.Issue(article.IssueID)
+	if err != nil || issue == nil {
+		http.NotFound(w, r)
+		return
+	}
+	serve := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "private, no-store")
+		if article.Image == nil || ValidateImageAsset(*article.Image) != nil || r.PathValue("name") != article.Image.Name {
+			http.NotFound(w, r)
+			return
+		}
+		query, err := url.ParseQuery(r.URL.RawQuery)
+		width := 0
+		if values, present := query["w"]; present {
+			if len(values) != 1 {
+				http.Error(w, "Ogiltig bildstorlek.", http.StatusBadRequest)
+				return
+			}
+			switch values[0] {
+			case "0", "400", "800", "1536":
+				width, _ = strconv.Atoi(values[0])
+			default:
+				http.Error(w, "Ogiltig bildstorlek.", http.StatusBadRequest)
+				return
+			}
+		}
+		if err != nil {
+			http.Error(w, "Ogiltig bildstorlek.", http.StatusBadRequest)
+			return
+		}
+		file, err := OpenImageFile(web.imageDirectory, article.Image.Name, width)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer file.Close()
+		info, err := file.Stat()
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		contentType := "image/jpeg"
+		if strings.HasSuffix(article.Image.Name, ".png") {
+			contentType = "image/png"
+		}
+		w.Header().Set("Content-Type", contentType)
+		http.ServeContent(w, r, article.Image.Name, info.ModTime(), file)
+	})
+	if issue.PublishedAt == nil {
+		web.access.RequireEditor(serve).ServeHTTP(w, r)
+		return
+	}
+	serve.ServeHTTP(w, r)
+}
+
 func (web *Web) edit(w http.ResponseWriter, r *http.Request) {
 	article, ok := web.editable(w, r)
 	if !ok {
@@ -382,16 +477,12 @@ func (web *Web) queueImage(w http.ResponseWriter, r *http.Request) {
 		web.fail(w, r, ErrConflict)
 		return
 	}
-	if !web.imagesEnabled {
-		web.render(w, r, http.StatusServiceUnavailable, "error", webPage{Title: "Bilder är inte tillgängliga", Message: "Bildhämtning är avstängd eftersom UNSPLASH_ACCESS_KEY saknas."})
+	prompt := strings.ReplaceAll(r.PostForm.Get("image_prompt"), "\r\n", "\n")
+	if err := ValidateImagePrompt(prompt); err != nil {
+		web.badRequest(w, r, "Beskriv bilden med en bildprompt, högst 3 000 byte.")
 		return
 	}
-	query := r.PostForm.Get("image_query")
-	if err := ValidateImageQuery(query); err != nil {
-		web.badRequest(w, r, "Ange en allmän sökfras på engelska, högst 160 tecken. Använd inte namn eller kunduppgifter.")
-		return
-	}
-	if err := web.store.QueueImage(article.ID, revision, query); err != nil {
+	if err := web.store.QueueImage(article.ID, revision, prompt); err != nil {
 		web.fail(w, r, err)
 		return
 	}

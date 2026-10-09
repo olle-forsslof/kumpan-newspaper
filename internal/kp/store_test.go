@@ -105,7 +105,7 @@ func TestStoreSubmissionAnonymousAndDedupe(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.AuthorID != "" || a.AuthorName != "" || a.Original != "Why?" || a.Status != StatusPending || a.Revision != 1 {
+	if a.AuthorID != "" || a.AuthorName != "" || a.Original != "Why?" || a.Status != StatusPending || a.Revision != 1 || a.ImageRevision != 1 {
 		t.Fatalf("bad anonymous submission: %+v", a)
 	}
 	a, err = s.GetArticle(a.ID)
@@ -653,7 +653,7 @@ func TestStoreRefusesMissingSchemaGuards(t *testing.T) {
 				t.Fatalf("refusal repaired missing guard: %v, %v", exists, err)
 			}
 			var version int
-			if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
+			if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 3 {
 				t.Fatalf("refusal changed schema version: %d, %v", version, err)
 			}
 		})
@@ -789,6 +789,7 @@ func TestStoreRefusesLegacyAndUnsupportedSchema(t *testing.T) {
 		"CREATE VIEW questions AS SELECT 1 AS id",
 		"PRAGMA user_version = 2",
 		"PRAGMA user_version = 3",
+		"PRAGMA user_version = 4",
 		"PRAGMA user_version = 1",
 	} {
 		t.Run(setup, func(t *testing.T) {

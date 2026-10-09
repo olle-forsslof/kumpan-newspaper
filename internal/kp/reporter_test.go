@@ -14,7 +14,11 @@ import (
 	"time"
 )
 
-const validReporterJSON = `{"headline":"Rubrik","body":"Text","question":"","signature":"","signoff":"","image_query":"team working laptops"}`
+const reportImagePrompt = "A black-and-white newspaper photograph of a fictional office presentation. A generic presenter stands beside a computer on a plain table, while a bitten apple lies conspicuously next to the keyboard as the single visual joke. Frame the scene at table height with natural window lighting, subtle grain, and an uncluttered background. No text or logos."
+
+const questionImagePrompt = "A simple black-ink editorial line cartoon of a fictional office with an open window. A generic person sits at a desk while a small desk fan points determinedly out through the window, the single visual joke suggesting an overenthusiastic solution to stale air. Use sparse outlines on a transparent background, with no shading, fills, colors, or text."
+
+const validReporterJSON = `{"headline":"Rubrik","body":"Text","question":"","signature":"","signoff":"","image_prompt":"` + reportImagePrompt + `"}`
 
 func testReporter(t *testing.T, handler http.HandlerFunc) *AIReporter {
 	t.Helper()
@@ -84,17 +88,21 @@ func TestReporterRequestAndReport(t *testing.T) {
 			t.Error("reporter must treat the colleague as a source, not the writer")
 		}
 		for _, instruction := range []string{
-			"nonblank short English phrase of 2-6 words", "FINAL article topic, not literal keyword frequency",
-			"company/customer/project names, personal identifiers, emails, locations",
-			"confidential specifics", "indirect neutral object", "never a diagnosis or an insensitive portrait",
-			`new website -> "team working laptops"`, `smell -> "open window office"`, `cake -> "empty cake plate"`,
+			"concrete English scene description of 50-100 words", "FINAL article story, not generic search keywords",
+			"fully AI-generated", "exactly ONE relevant visual joke", "bitten apple", "Christmas bow or lights",
+			"photographic newspaper composition in black and white", "subtle grain and natural lighting, no text or logos",
+			"simple black-ink editorial line cartoon on a transparent", "no shading, fills, colors, or text",
+			"generic fictional people and objects", "never claim a depicted person is an actual coworker",
+			"names, personal identifiers, company/customer/project names, emails, locations",
+			"sensitive identifying details", "indirect neutral", "never a diagnosis or an insensitive portrait",
+			"image backend also enforces the style for each kind", "do not specify model names",
 		} {
 			if !strings.Contains(request.Instructions, instruction) {
-				t.Errorf("missing image query instruction: %s", instruction)
+				t.Errorf("missing image prompt instruction: %s", instruction)
 			}
 		}
 		format := request.Text.Format
-		fields := []string{"headline", "body", "question", "signature", "signoff", "image_query"}
+		fields := []string{"headline", "body", "question", "signature", "signoff", "image_prompt"}
 		if format.Type != "json_schema" || format.Name != "reporter" || !format.Strict || format.Schema.Type != "object" ||
 			format.Schema.AdditionalProperties == nil || *format.Schema.AdditionalProperties ||
 			!reflect.DeepEqual(format.Schema.Required, fields) || len(format.Schema.Properties) != 6 {
@@ -117,13 +125,13 @@ func TestReporterRequestAndReport(t *testing.T) {
 		if input["text"] != original || input["kind"] != KindReport || input["author_name"] != "Reporter" || len(input) != 3 {
 			t.Errorf("unexpected submission fields: %v", input)
 		}
-		reporterResponse(w, "completed", `{"headline":"  Nyheter  ",`, `"body":"  En torr betraktelse.  ","question":"","signature":"","signoff":"","image_query":"  team working laptops  "}`)
+		reporterResponse(w, "completed", `{"headline":"  Nyheter  ",`, `"body":"  En torr betraktelse.  ","question":"","signature":"","signoff":"","image_prompt":"  `+reportImagePrompt+`  "}`)
 	})
 	g, err := r.Generate(context.Background(), Article{Kind: KindReport, Original: original, AuthorName: "Reporter", AuthorID: "private-id"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g != (Generated{Headline: "Nyheter", Body: "En torr betraktelse.", ImageQuery: "team working laptops"}) {
+	if g != (Generated{Headline: "Nyheter", Body: "En torr betraktelse.", ImagePrompt: reportImagePrompt}) {
 		t.Fatalf("unexpected report: %+v", g)
 	}
 }
@@ -168,14 +176,14 @@ func TestReporterQuestion(t *testing.T) {
 				if !strings.Contains(request.Instructions, "made-up Swedish letter-writer signature tied to the question") || !strings.Contains(request.Instructions, "En fattig och känslig näsa") {
 					t.Error("signature must describe a fictional letter writer, not the columnist")
 				}
-				text, _ := json.Marshal(Generated{Headline: "  Fragespalten ", Body: " Prata enskilt. ", Question: " Hur tar jag upp saken? ", Signature: " Kaffekoppen ", Signoff: signoff, ImageQuery: "  open window office  "})
+				text, _ := json.Marshal(Generated{Headline: "  Fragespalten ", Body: " Prata enskilt. ", Question: " Hur tar jag upp saken? ", Signature: " Kaffekoppen ", Signoff: signoff, ImagePrompt: "  " + questionImagePrompt + "  "})
 				reporterResponse(w, "completed", string(text))
 			})
 			g, err := r.Generate(context.Background(), Article{Kind: KindQuestion, Original: "En diskret fraga", AuthorName: "Do not send", AuthorID: "private-id"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := Generated{Headline: "Fragespalten", Body: "Prata enskilt.", Question: "Hur tar jag upp saken?", Signature: "Kaffekoppen", Signoff: strings.TrimSpace(signoff), ImageQuery: "open window office"}
+			want := Generated{Headline: "Fragespalten", Body: "Prata enskilt.", Question: "Hur tar jag upp saken?", Signature: "Kaffekoppen", Signoff: strings.TrimSpace(signoff), ImagePrompt: questionImagePrompt}
 			if g != want {
 				t.Fatalf("got %+v, want %+v", g, want)
 			}
@@ -196,6 +204,7 @@ func TestReporterRejectsInvalidOutput(t *testing.T) {
 		{"empty headline", KindReport, "completed", strings.Replace(validReporterJSON, "Rubrik", "  ", 1)},
 		{"empty body", KindReport, "completed", strings.Replace(validReporterJSON, "Text", "  ", 1)},
 		{"unknown", KindReport, "completed", strings.TrimSuffix(validReporterJSON, "}") + `,"extra":"private"}`},
+		{"legacy image query", KindReport, "completed", strings.Replace(validReporterJSON, `"image_prompt"`, `"image_query"`, 1)},
 		{"empty question", KindQuestion, "completed", validReporterJSON},
 		{"empty signature", KindQuestion, "completed", strings.Replace(validReporterJSON, `"question":""`, `"question":"Fraga"`, 1)},
 		{"report question fields", KindReport, "completed", strings.Replace(validReporterJSON, `"signature":""`, `"signature":"Namn"`, 1)},
@@ -203,7 +212,7 @@ func TestReporterRejectsInvalidOutput(t *testing.T) {
 		{"payload size", KindReport, "completed", strings.Repeat("x", 100001)},
 		{"empty content", KindReport, "completed", ""},
 	}
-	for _, field := range []string{"headline", "body", "question", "signature", "signoff", "image_query"} {
+	for _, field := range []string{"headline", "body", "question", "signature", "signoff", "image_prompt"} {
 		for _, value := range []string{"missing", "null", "42", "true", `[]`, `{}`} {
 			var object map[string]any
 			_ = json.Unmarshal([]byte(validReporterJSON), &object)
@@ -266,21 +275,42 @@ func TestReporterRejectsInvalidResponse(t *testing.T) {
 	}
 }
 
-func TestReporterDiscardsUnsafeImageQueries(t *testing.T) {
-	for _, query := range []string{"", "  ", "alice@example.com", "https://customer.example/project", "192.168.1.1 office", "open\nwindow", strings.Repeat("x", 161), strings.Repeat("word ", 13)} {
-		t.Run(query, func(t *testing.T) {
+func TestReporterDiscardsInvalidImagePrompts(t *testing.T) {
+	for _, tc := range []struct{ name, prompt string }{
+		{"empty", ""}, {"blank", "  \n "}, {"too long", strings.Repeat("x", 3001)},
+		{"too many UTF-8 bytes", strings.Repeat("\u00e5", 1501)},
+		{"tab", "An office\twindow"}, {"carriage return", "An office\rwindow"},
+		{"control", "An office\x00window"}, {"delete", "An office\x7fwindow"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			r := testReporter(t, func(w http.ResponseWriter, req *http.Request) {
-				text, err := json.Marshal(Generated{Headline: "Rubrik", Body: "Text", ImageQuery: query})
+				text, err := json.Marshal(Generated{Headline: "Rubrik", Body: "Text", ImagePrompt: tc.prompt})
 				if err != nil {
 					t.Fatal(err)
 				}
 				reporterResponse(w, "completed", string(text))
 			})
 			g, err := r.Generate(context.Background(), Article{Kind: KindReport})
-			if err != nil || g.Headline != "Rubrik" || g.Body != "Text" || g.ImageQuery != "" {
-				t.Fatalf("unsafe query was retained or discarded the article: %+v, %v", g, err)
+			if err != nil || g.Headline != "Rubrik" || g.Body != "Text" || g.ImagePrompt != "" {
+				t.Fatalf("invalid prompt was retained or discarded the article: %+v, %v", g, err)
 			}
 		})
+	}
+}
+
+func TestReporterPreservesValidImagePrompts(t *testing.T) {
+	for _, prompt := range []string{reportImagePrompt, questionImagePrompt, "An office window.\nA fictional person opens it.", strings.Repeat("\u00e5", 1500)} {
+		r := testReporter(t, func(w http.ResponseWriter, req *http.Request) {
+			text, err := json.Marshal(Generated{Headline: "Rubrik", Body: "Text", ImagePrompt: prompt})
+			if err != nil {
+				t.Fatal(err)
+			}
+			reporterResponse(w, "completed", string(text))
+		})
+		g, err := r.Generate(context.Background(), Article{Kind: KindReport})
+		if err != nil || g.ImagePrompt != prompt {
+			t.Fatalf("valid image prompt was not preserved: %+v, %v", g, err)
+		}
 	}
 }
 

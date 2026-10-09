@@ -45,10 +45,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	defer store.Close()
 
-	workerConfig := kp.WorkerConfig{BaseURL: cfg.BaseURL, PublishChannel: cfg.PublishChannel, EditorIDs: cfg.EditorIDs}
-	if cfg.UnsplashAccessKey != "" {
-		workerConfig.Photos = kp.NewUnsplash(cfg.UnsplashAccessKey)
+	images, err := kp.NewImageGenerator(cfg.APIKey, cfg.ImageModel, cfg.ImageDirectory)
+	if err != nil {
+		return err
 	}
+	workerConfig := kp.WorkerConfig{BaseURL: cfg.BaseURL, PublishChannel: cfg.PublishChannel, EditorIDs: cfg.EditorIDs, Images: images}
 	worker := kp.NewWorker(store, kp.NewReporter(cfg.APIKey, cfg.Model), kp.NewMessenger(cfg.BotToken), workerConfig, logger)
 	// Requests drain independently of the signal that stops the worker.
 	requestCtx, cancelRequests := context.WithCancel(context.WithoutCancel(ctx))

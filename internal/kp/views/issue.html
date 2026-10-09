@@ -48,13 +48,13 @@
     {{if eq .Status "ready"}}
       {{if eq .Kind "question"}}
       <h3>{{.Headline}}</h3>
-      {{template "photo" (photoView .Photo .ImagePriority .ImageSizes)}}
+      {{template "article-image" .}}
       <blockquote>
         <p class="text">{{.Question}}</p>
         <footer class="letter-signature">Signaturen {{.Signature}}</footer>
       </blockquote>
       {{else}}<h2>{{.Headline}}</h2>
-      {{template "photo" (photoView .Photo .ImagePriority .ImageSizes)}}{{end}}
+      {{template "article-image" .}}{{end}}
       <div class="text">{{.Body}}</div>
       {{if .Signoff}}<p class="text">{{.Signoff}}</p>{{end}}
     {{else if .Draft}}
@@ -78,6 +78,16 @@
     {{end}}
   </article>
 {{end}}
+
+{{define "article-image"}}
+{{with imageView .ID .Image .ImagePriority .ImageSizes}}{{template "image" .}}{{else}}{{template "photo" (photoView .Photo .ImagePriority .ImageSizes)}}{{end}}
+{{end}}
+
+{{define "image"}}{{if .}}
+<figure class="article-image">
+  <img src="{{assetURL .ArticleID .ImageAsset 800}}" srcset="{{assetURL .ArticleID .ImageAsset 400}} 400w, {{assetURL .ArticleID .ImageAsset 800}} 800w, {{assetURL .ArticleID .ImageAsset 1536}} 1536w" sizes="{{.Sizes}}" width="{{.Width}}" height="{{.Height}}" alt="" {{if .Priority}}loading="eager" fetchpriority="high"{{else}}loading="lazy"{{end}}>
+</figure>
+{{end}}{{end}}
 
 {{define "photo"}}{{if .}}
 <figure class="article-photo">

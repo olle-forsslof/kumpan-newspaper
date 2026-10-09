@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -12,27 +13,26 @@ import (
 type Config struct {
 	Port, DatabasePath, BaseURL, WorkspaceID, SigningSecret string
 	BotToken, ClientID, ClientSecret, SessionSecret, APIKey string
-	Model, PublishChannel                                   string
+	Model, ImageModel, ImageDirectory, PublishChannel       string
 	EditorIDs                                               []string
-	UnsplashAccessKey                                       string
 }
 
 // LoadConfig reads only the process environment. Errors name the invalid
 // variable, never its value, so callers can safely log configuration failures.
 func LoadConfig() (Config, error) {
 	cfg := Config{
-		Port:              os.Getenv("PORT"),
-		BaseURL:           os.Getenv("BASE_URL"),
-		WorkspaceID:       os.Getenv("SLACK_WORKSPACE_ID"),
-		SigningSecret:     os.Getenv("SLACK_SIGNING_SECRET"),
-		BotToken:          os.Getenv("SLACK_BOT_TOKEN"),
-		ClientID:          os.Getenv("SLACK_CLIENT_ID"),
-		ClientSecret:      os.Getenv("SLACK_CLIENT_SECRET"),
-		SessionSecret:     os.Getenv("SESSION_SECRET"),
-		APIKey:            os.Getenv("OPENAI_API_KEY"),
-		Model:             os.Getenv("OPENAI_MODEL"),
-		PublishChannel:    os.Getenv("SLACK_PUBLISH_CHANNEL"),
-		UnsplashAccessKey: os.Getenv("UNSPLASH_ACCESS_KEY"),
+		Port:           os.Getenv("PORT"),
+		BaseURL:        os.Getenv("BASE_URL"),
+		WorkspaceID:    os.Getenv("SLACK_WORKSPACE_ID"),
+		SigningSecret:  os.Getenv("SLACK_SIGNING_SECRET"),
+		BotToken:       os.Getenv("SLACK_BOT_TOKEN"),
+		ClientID:       os.Getenv("SLACK_CLIENT_ID"),
+		ClientSecret:   os.Getenv("SLACK_CLIENT_SECRET"),
+		SessionSecret:  os.Getenv("SESSION_SECRET"),
+		APIKey:         os.Getenv("OPENAI_API_KEY"),
+		Model:          os.Getenv("OPENAI_MODEL"),
+		PublishChannel: os.Getenv("SLACK_PUBLISH_CHANNEL"),
+		ImageModel:     os.Getenv("OPENAI_IMAGE_MODEL"),
 	}
 	if cfg.Port == "" {
 		cfg.Port = "8080"
@@ -49,8 +49,12 @@ func LoadConfig() (Config, error) {
 	if strings.TrimSpace(cfg.DatabasePath) == "" {
 		return Config{}, errors.New("DATABASE_PATH")
 	}
+	cfg.ImageDirectory = filepath.Join(filepath.Dir(cfg.DatabasePath), "images")
 	if cfg.Model == "" {
 		cfg.Model = "gpt-4.1-mini"
+	}
+	if cfg.ImageModel == "" {
+		cfg.ImageModel = "gpt-image-2.5-flare"
 	}
 	for _, field := range []struct{ name, value string }{
 		{"SLACK_WORKSPACE_ID", cfg.WorkspaceID},
@@ -61,6 +65,7 @@ func LoadConfig() (Config, error) {
 		{"SESSION_SECRET", cfg.SessionSecret},
 		{"OPENAI_API_KEY", cfg.APIKey},
 		{"OPENAI_MODEL", cfg.Model},
+		{"OPENAI_IMAGE_MODEL", cfg.ImageModel},
 		{"SLACK_PUBLISH_CHANNEL", cfg.PublishChannel},
 	} {
 		if field.value == "" || strings.ContainsFunc(field.value, unicode.IsSpace) {
@@ -69,9 +74,6 @@ func LoadConfig() (Config, error) {
 	}
 	if len(cfg.SessionSecret) < 32 {
 		return Config{}, errors.New("SESSION_SECRET")
-	}
-	if strings.ContainsFunc(cfg.UnsplashAccessKey, unicode.IsSpace) {
-		return Config{}, errors.New("UNSPLASH_ACCESS_KEY")
 	}
 	u, err := url.Parse(cfg.BaseURL)
 	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || strings.Contains(cfg.BaseURL, "#") || (u.Path != "" && u.Path != "/") || u.Opaque != "" || strings.ContainsFunc(cfg.BaseURL, unicode.IsSpace) {

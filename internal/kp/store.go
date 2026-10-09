@@ -43,13 +43,15 @@ type Article struct {
 	Kind, AuthorID, AuthorName, Original, Status        string
 	Headline, Body, Question, Signature, Signoff, Error string
 	CreatedAt                                           time.Time
-	ImageQuery, ImageStatus                             string
+	ImagePrompt, ImageStatus                            string
+	ImageRevision                                       int
+	Image                                               *ImageAsset
 	Photo                                               *Photo
 }
 
 type Generated struct {
 	Headline, Body, Question, Signature, Signoff string
-	ImageQuery                                   string `json:"image_query"`
+	ImagePrompt                                  string `json:"image_prompt"`
 }
 
 type Store struct{ DB *sql.DB }
@@ -148,7 +150,7 @@ func (s *Store) initialize() error {
 	if err = tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version != 0 && version != 1 && version != 2 {
+	if version < 0 || version > 3 {
 		return fmt.Errorf("unsupported database version %d", version)
 	}
 	rows, err := tx.Query("SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT GLOB 'sqlite_*'")
@@ -230,6 +232,25 @@ PRAGMA user_version = 2;`); err != nil {
 	if err = imageRows.Close(); err != nil {
 		return err
 	}
+	if version < 3 {
+		if _, err = tx.Exec(`ALTER TABLE kp_articles ADD COLUMN image_prompt TEXT NOT NULL DEFAULT '';
+ALTER TABLE kp_articles ADD COLUMN generated_image TEXT NOT NULL DEFAULT '';
+ALTER TABLE kp_articles ADD COLUMN image_revision INTEGER NOT NULL DEFAULT 1 CHECK (image_revision > 0);
+UPDATE kp_articles SET image_status = CASE WHEN image_photo != '' THEN 'ready' ELSE 'none' END,
+ revision = revision + 1
+ WHERE status = 'ready' AND image_status IN ('pending','processing','failed')
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL);
+PRAGMA user_version = 3;`); err != nil {
+			return err
+		}
+	}
+	generatedRows, err := tx.Query("SELECT image_prompt, generated_image, image_revision FROM kp_articles LIMIT 0")
+	if err != nil {
+		return fmt.Errorf("incomplete kp database image schema: %w", err)
+	}
+	if err = generatedRows.Close(); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -238,7 +259,7 @@ func (s *Store) Close() error { return s.DB.Close() }
 type scanner interface{ Scan(...any) error }
 
 const issueColumns = "id, title, created_at, published_at"
-const articleColumns = "id, issue_id, revision, kind, author_id, author_name, original, status, headline, body, question, signature, signoff, error, created_at, image_query, image_status, image_photo"
+const articleColumns = "id, issue_id, revision, kind, author_id, author_name, original, status, headline, body, question, signature, signoff, error, created_at, image_prompt, image_status, image_photo, generated_image, image_revision"
 
 func scanIssue(row scanner) (*Issue, error) {
 	i := new(Issue)
@@ -256,8 +277,8 @@ func scanIssue(row scanner) (*Issue, error) {
 
 func scanArticle(row scanner) (*Article, error) {
 	a := new(Article)
-	var photoJSON string
-	err := row.Scan(&a.ID, &a.IssueID, &a.Revision, &a.Kind, &a.AuthorID, &a.AuthorName, &a.Original, &a.Status, &a.Headline, &a.Body, &a.Question, &a.Signature, &a.Signoff, &a.Error, &a.CreatedAt, &a.ImageQuery, &a.ImageStatus, &photoJSON)
+	var photoJSON, imageJSON string
+	err := row.Scan(&a.ID, &a.IssueID, &a.Revision, &a.Kind, &a.AuthorID, &a.AuthorName, &a.Original, &a.Status, &a.Headline, &a.Body, &a.Question, &a.Signature, &a.Signoff, &a.Error, &a.CreatedAt, &a.ImagePrompt, &a.ImageStatus, &photoJSON, &imageJSON, &a.ImageRevision)
 	if err != nil {
 		return nil, err
 	}
@@ -267,6 +288,13 @@ func scanArticle(row scanner) (*Article, error) {
 			return nil, errors.New("invalid stored image metadata")
 		}
 		a.Photo = &photo
+	}
+	if imageJSON != "" {
+		var image ImageAsset
+		if json.Unmarshal([]byte(imageJSON), &image) != nil || ValidateImageAsset(image) != nil {
+			return nil, errors.New("invalid stored image metadata")
+		}
+		a.Image = &image
 	}
 	a.CreatedAt = a.CreatedAt.UTC()
 	return a, nil
@@ -423,19 +451,20 @@ func ValidateGenerated(kind string, g Generated) error {
 	if len(g.Headline) > 500 || len(g.Signature) > 500 || len(g.Signoff) > 500 || len(g.Body) > 20000 || len(g.Question) > 20000 {
 		return errors.New("generated content exceeds length limits")
 	}
-	if strings.TrimSpace(g.ImageQuery) != "" {
-		return ValidateImageQuery(g.ImageQuery)
+	if strings.TrimSpace(g.ImagePrompt) != "" {
+		return ValidateImagePrompt(g.ImagePrompt)
 	}
 	return nil
 }
 
-func ValidateImageQuery(query string) error {
-	if strings.TrimSpace(query) == "" || len(query) > 160 || len(strings.Fields(query)) > 12 || !utf8.ValidString(query) {
-		return errors.New("image query must contain 1 to 160 bytes and at most 12 words")
+// ValidateImagePrompt limits prompts to 3000 bytes, not Unicode characters.
+func ValidateImagePrompt(prompt string) error {
+	if strings.TrimSpace(prompt) == "" || len(prompt) > 3000 || !utf8.ValidString(prompt) {
+		return errors.New("image prompt must contain 1 to 3000 bytes of valid UTF-8")
 	}
-	for _, r := range query {
-		if unicode.IsControl(r) || !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == ' ' || r == '-') {
-			return errors.New("image query must contain only English words, numbers, spaces or hyphens")
+	for _, r := range prompt {
+		if unicode.IsControl(r) && r != '\n' {
+			return errors.New("image prompt must not contain control characters other than newlines")
 		}
 	}
 	return nil
@@ -474,21 +503,20 @@ func (s *Store) writeGenerated(id, revision int, status string, g Generated) err
 		return err
 	}
 	err = affected(tx.Exec(`UPDATE kp_articles SET headline = ?, body = ?, question = ?, signature = ?, signoff = ?,
-	status = 'ready', error = '', revision = revision + 1,
-	image_status = CASE WHEN image_status = 'processing' THEN 'pending' ELSE image_status END
+	status = 'ready', error = '', revision = revision + 1
 	WHERE id = ? AND revision = ?`,
 		g.Headline, g.Body, g.Question, g.Signature, g.Signoff, id, revision))
 	if err != nil {
 		return err
 	}
 	if status == StatusProcessing {
-		query := strings.TrimSpace(g.ImageQuery)
+		prompt := strings.TrimSpace(g.ImagePrompt)
 		imageStatus := "none"
-		if query != "" {
+		if prompt != "" {
 			imageStatus = StatusPending
 		}
-		if err = affected(tx.Exec(`UPDATE kp_articles SET image_query = ?, image_status = ?, image_photo = ''
- WHERE id = ? AND revision = ?`, query, imageStatus, id, revision+1)); err != nil {
+		if err = affected(tx.Exec(`UPDATE kp_articles SET image_prompt = ?, image_status = ?, image_photo = '', generated_image = '', image_revision = image_revision + 1
+ WHERE id = ? AND revision = ?`, prompt, imageStatus, id, revision+1)); err != nil {
 			return err
 		}
 	}
@@ -550,60 +578,66 @@ func (s *Store) ClaimNextImage() (*Article, error) {
 	}
 	defer tx.Rollback()
 	a, err := scanArticle(tx.QueryRow("SELECT " + articleColumns + ` FROM kp_articles
- WHERE status = 'ready' AND image_status = 'pending'
+ WHERE status = 'ready' AND image_status = 'pending' AND trim(image_prompt, char(9) || char(10) || char(13) || ' ') != ''
  AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL) ORDER BY id LIMIT 1`))
 	if err != nil {
 		return nil, err
 	}
-	if err = affected(tx.Exec(`UPDATE kp_articles SET image_status = 'processing', revision = revision + 1
+	if err := ValidateImagePrompt(a.ImagePrompt); err != nil {
+		return nil, err
+	}
+	if err = affected(tx.Exec(`UPDATE kp_articles SET image_status = 'processing', revision = revision + 1, image_revision = image_revision + 1
  WHERE id = ? AND revision = ? AND status = 'ready' AND image_status = 'pending'
  AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, a.ID, a.Revision)); err != nil {
 		return nil, err
 	}
 	a.ImageStatus = StatusProcessing
 	a.Revision++
+	a.ImageRevision++
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return a, nil
 }
 
-func (s *Store) CompleteImage(id, revision int, photo Photo) error {
-	if err := ValidatePhoto(photo); err != nil {
+// Image callbacks use the claim's ImageRevision, unaffected by text-only saves.
+func (s *Store) CompleteImage(id, claimVersion int, image ImageAsset) error {
+	if err := ValidateImageAsset(image); err != nil {
 		return err
 	}
-	metadata, err := json.Marshal(photo)
+	metadata, err := json.Marshal(image)
 	if err != nil {
 		return err
 	}
-	return affected(s.DB.Exec(`UPDATE kp_articles SET image_photo = ?, image_status = 'ready', revision = revision + 1
- WHERE id = ? AND revision = ? AND status = 'ready' AND image_status = 'processing'
- AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, string(metadata), id, revision))
+	return affected(s.DB.Exec(`UPDATE kp_articles SET generated_image = ?, image_photo = '', image_status = 'ready', revision = revision + 1, image_revision = image_revision + 1
+ WHERE id = ? AND image_revision = ? AND status = 'ready' AND image_status = 'processing'
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, string(metadata), id, claimVersion))
 }
 
-func (s *Store) FailImage(id, revision int) error {
-	return affected(s.DB.Exec(`UPDATE kp_articles SET image_status = 'failed', revision = revision + 1
- WHERE id = ? AND revision = ? AND status = 'ready' AND image_status = 'processing'
- AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, id, revision))
+func (s *Store) FailImage(id, claimVersion int) error {
+	return affected(s.DB.Exec(`UPDATE kp_articles SET image_status = 'failed', revision = revision + 1, image_revision = image_revision + 1
+ WHERE id = ? AND image_revision = ? AND status = 'ready' AND image_status = 'processing'
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, id, claimVersion))
 }
 
-func (s *Store) QueueImage(id, revision int, query string) error {
-	if err := ValidateImageQuery(query); err != nil {
+func (s *Store) QueueImage(id, revision int, prompt string) error {
+	if err := ValidateImagePrompt(prompt); err != nil {
 		return err
 	}
-	return affected(s.DB.Exec(`UPDATE kp_articles SET image_query = ?, image_status = 'pending', revision = revision + 1
+	return affected(s.DB.Exec(`UPDATE kp_articles SET image_prompt = ?, image_status = 'pending', revision = revision + 1, image_revision = image_revision + 1
  WHERE id = ? AND revision = ? AND status = 'ready'
- AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, strings.TrimSpace(query), id, revision))
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, strings.TrimSpace(prompt), id, revision))
 }
 
 func (s *Store) RemoveImage(id, revision int) error {
-	return affected(s.DB.Exec(`UPDATE kp_articles SET image_status = 'removed', image_photo = '', revision = revision + 1
+	return affected(s.DB.Exec(`UPDATE kp_articles SET image_status = 'removed', image_photo = '', generated_image = '', revision = revision + 1, image_revision = image_revision + 1
  WHERE id = ? AND revision = ? AND status = 'ready'
  AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, id, revision))
 }
 
 // RecoverProcessing is for single-instance startup, before workers are started.
 // Incrementing revisions invalidates callbacks from the abandoned attempts.
+// Image attempts require manual retry because they may already have been billed.
 func (s *Store) RecoverProcessing() error {
 	tx, err := s.DB.Begin()
 	if err != nil {
@@ -614,7 +648,7 @@ func (s *Store) RecoverProcessing() error {
  WHERE status = 'processing' AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(`UPDATE kp_articles SET image_status = 'pending', revision = revision + 1
+	if _, err = tx.Exec(`UPDATE kp_articles SET image_status = 'failed', revision = revision + 1, image_revision = image_revision + 1
  WHERE status = 'ready' AND image_status = 'processing'
  AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`); err != nil {
 		return err
@@ -668,7 +702,7 @@ func (s *Store) publish(issueID int, review string) (*Issue, error) {
 			rows.Close()
 			return nil, scanErr
 		}
-		if a.Status != StatusReady || ValidateGenerated(a.Kind, Generated{Headline: a.Headline, Body: a.Body, Question: a.Question, Signature: a.Signature, Signoff: a.Signoff, ImageQuery: a.ImageQuery}) != nil {
+		if a.Status != StatusReady || ValidateGenerated(a.Kind, Generated{Headline: a.Headline, Body: a.Body, Question: a.Question, Signature: a.Signature, Signoff: a.Signoff, ImagePrompt: a.ImagePrompt}) != nil {
 			rows.Close()
 			return nil, ErrNotReady
 		}

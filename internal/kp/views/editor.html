@@ -35,25 +35,23 @@
   <button type="submit">Spara ändringar</button>
 </form>
 <section class="editor-images" aria-labelledby="image-heading">
-  <h2 id="image-heading">Artikelbild</h2>
-  {{template "photo" (photoView .Article.Photo false "(max-width: 48rem) 92vw, 48rem")}}
-  {{if eq .Article.ImageStatus "pending"}}<p role="status">Bilden väntar på att hämtas. Artikeltexten är klar och kan publiceras.</p>
-  {{else if eq .Article.ImageStatus "processing"}}<p role="status">Bilden hämtas. Artikeltexten är klar och kan publiceras.</p>
-  {{else if eq .Article.ImageStatus "failed"}}<p role="status">Bilden kunde inte hämtas. En eventuell tidigare bild visas fortfarande. Försök med en annan sökfras eller ta bort bilden.</p>
-  {{else if eq .Article.ImageStatus "removed"}}<p>Ingen bild hämtas automatiskt. Du kan välja att hämta en bild igen.</p>{{end}}
-  {{if .ImagesEnabled}}
+  <h2 id="image-heading">{{if eq .Article.Kind "question"}}Frågespaltens teckning{{else}}Nyhetsbild{{end}}</h2>
+  {{with imageView .Article.ID .Article.Image false "(max-width: 48rem) 92vw, 48rem"}}{{template "image" .}}{{else}}{{template "photo" (photoView .Article.Photo false "(max-width: 48rem) 92vw, 48rem")}}{{end}}
+  {{if eq .Article.ImageStatus "pending"}}<p role="status">Bilden väntar på att genereras. Artikeltexten är klar och kan publiceras.</p>
+  {{else if eq .Article.ImageStatus "processing"}}<p role="status">Bilden genereras. Artikeltexten är klar och kan publiceras.</p>
+  {{else if eq .Article.ImageStatus "failed"}}<p role="status">Bilden kunde inte genereras. En eventuell tidigare bild visas fortfarande. Försök med en annan bildprompt eller ta bort bilden.</p>
+  {{else if eq .Article.ImageStatus "removed"}}<p>Ingen bild genereras automatiskt. Du kan välja att generera en bild igen.</p>{{end}}
   <form method="post" action="/editor/article/{{.Article.ID}}/image">
     <input type="hidden" name="csrf_token" value="{{.User.CSRF}}">
     <input type="hidden" name="revision" value="{{.Article.Revision}}">
     <div class="field">
-      <label for="image-query">Sökfras för bild</label>
-      <input id="image-query" name="image_query" value="{{.Article.ImageQuery}}" maxlength="160" aria-describedby="image-hint" required>
-      <p id="image-hint" class="field-hint">Använd en allmän sökfras på engelska, utan namn eller kunduppgifter.</p>
+      <label for="image-prompt">Bildprompt</label>
+      <textarea id="image-prompt" name="image_prompt" rows="4" maxlength="3000" aria-describedby="image-hint" required>{{.Article.ImagePrompt}}</textarea>
+      <p id="image-hint" class="field-hint">Beskriv scenen. {{if eq .Article.Kind "question"}}Bilden får en fast stil som svart tidningsteckning med genomskinlig bakgrund.{{else}}Bilden får en fast stil som svartvit nyhetsillustration.{{end}}</p>
     </div>
-    <button type="submit">{{if .Article.Photo}}Hämta ny bild{{else}}Hämta bild{{end}}</button>
+    <button type="submit">{{if or .Article.Image .Article.Photo}}Generera ny bild{{else}}Generera bild{{end}}</button>
   </form>
-  {{else}}<p>Bildhämtning är avstängd eftersom UNSPLASH_ACCESS_KEY saknas.</p>{{end}}
-  {{if or .Article.Photo (eq .Article.ImageStatus "pending") (eq .Article.ImageStatus "processing") (eq .Article.ImageStatus "ready") (eq .Article.ImageStatus "failed")}}
+  {{if or .Article.Image .Article.Photo (eq .Article.ImageStatus "pending") (eq .Article.ImageStatus "processing") (eq .Article.ImageStatus "ready") (eq .Article.ImageStatus "failed")}}
   <form class="image-remove" method="post" action="/editor/article/{{.Article.ID}}/image/remove">
     <input type="hidden" name="csrf_token" value="{{.User.CSRF}}">
     <input type="hidden" name="revision" value="{{.Article.Revision}}">
