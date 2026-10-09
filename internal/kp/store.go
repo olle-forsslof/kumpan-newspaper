@@ -3,12 +3,15 @@ package kp
 import (
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -40,10 +43,13 @@ type Article struct {
 	Kind, AuthorID, AuthorName, Original, Status        string
 	Headline, Body, Question, Signature, Signoff, Error string
 	CreatedAt                                           time.Time
+	ImageQuery, ImageStatus                             string
+	Photo                                               *Photo
 }
 
 type Generated struct {
 	Headline, Body, Question, Signature, Signoff string
+	ImageQuery                                   string `json:"image_query"`
 }
 
 type Store struct{ DB *sql.DB }
@@ -142,7 +148,7 @@ func (s *Store) initialize() error {
 	if err = tx.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		return err
 	}
-	if version != 0 && version != 1 {
+	if version != 0 && version != 1 && version != 2 {
 		return fmt.Errorf("unsupported database version %d", version)
 	}
 	rows, err := tx.Query("SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT GLOB 'sqlite_*'")
@@ -193,6 +199,37 @@ func (s *Store) initialize() error {
 			return fmt.Errorf("incomplete kp database schema: missing %s %q", object.kind, object.name)
 		}
 	}
+	// Validate the deployed schema before migrating; never repair missing guards.
+	for _, query := range []string{
+		"SELECT id, title, created_at, published_at, notified_at FROM kp_issues LIMIT 0",
+		"SELECT id, issue_id, revision, kind, author_id, author_name, original, request_key, status, headline, body, question, signature, signoff, error, created_at FROM kp_articles LIMIT 0",
+		"SELECT key, sent_at FROM kp_reminders LIMIT 0",
+	} {
+		rows, err := tx.Query(query)
+		if err != nil {
+			return fmt.Errorf("incomplete kp database schema: %w", err)
+		}
+		if err = rows.Close(); err != nil {
+			return err
+		}
+	}
+	if version < 2 {
+		// ALTER defaults expose empty image fields without updating frozen rows.
+		if _, err = tx.Exec(`ALTER TABLE kp_articles ADD COLUMN image_query TEXT NOT NULL DEFAULT '';
+ALTER TABLE kp_articles ADD COLUMN image_status TEXT NOT NULL DEFAULT 'none'
+ CHECK (image_status IN ('none','pending','processing','ready','failed','removed'));
+ALTER TABLE kp_articles ADD COLUMN image_photo TEXT NOT NULL DEFAULT '';
+PRAGMA user_version = 2;`); err != nil {
+			return err
+		}
+	}
+	imageRows, err := tx.Query("SELECT image_query, image_status, image_photo FROM kp_articles LIMIT 0")
+	if err != nil {
+		return fmt.Errorf("incomplete kp database image schema: %w", err)
+	}
+	if err = imageRows.Close(); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -201,7 +238,7 @@ func (s *Store) Close() error { return s.DB.Close() }
 type scanner interface{ Scan(...any) error }
 
 const issueColumns = "id, title, created_at, published_at"
-const articleColumns = "id, issue_id, revision, kind, author_id, author_name, original, status, headline, body, question, signature, signoff, error, created_at"
+const articleColumns = "id, issue_id, revision, kind, author_id, author_name, original, status, headline, body, question, signature, signoff, error, created_at, image_query, image_status, image_photo"
 
 func scanIssue(row scanner) (*Issue, error) {
 	i := new(Issue)
@@ -219,9 +256,17 @@ func scanIssue(row scanner) (*Issue, error) {
 
 func scanArticle(row scanner) (*Article, error) {
 	a := new(Article)
-	err := row.Scan(&a.ID, &a.IssueID, &a.Revision, &a.Kind, &a.AuthorID, &a.AuthorName, &a.Original, &a.Status, &a.Headline, &a.Body, &a.Question, &a.Signature, &a.Signoff, &a.Error, &a.CreatedAt)
+	var photoJSON string
+	err := row.Scan(&a.ID, &a.IssueID, &a.Revision, &a.Kind, &a.AuthorID, &a.AuthorName, &a.Original, &a.Status, &a.Headline, &a.Body, &a.Question, &a.Signature, &a.Signoff, &a.Error, &a.CreatedAt, &a.ImageQuery, &a.ImageStatus, &photoJSON)
 	if err != nil {
 		return nil, err
+	}
+	if photoJSON != "" {
+		var photo Photo
+		if json.Unmarshal([]byte(photoJSON), &photo) != nil || ValidatePhoto(photo) != nil {
+			return nil, errors.New("invalid stored image metadata")
+		}
+		a.Photo = &photo
 	}
 	a.CreatedAt = a.CreatedAt.UTC()
 	return a, nil
@@ -378,6 +423,21 @@ func ValidateGenerated(kind string, g Generated) error {
 	if len(g.Headline) > 500 || len(g.Signature) > 500 || len(g.Signoff) > 500 || len(g.Body) > 20000 || len(g.Question) > 20000 {
 		return errors.New("generated content exceeds length limits")
 	}
+	if strings.TrimSpace(g.ImageQuery) != "" {
+		return ValidateImageQuery(g.ImageQuery)
+	}
+	return nil
+}
+
+func ValidateImageQuery(query string) error {
+	if strings.TrimSpace(query) == "" || len(query) > 160 || len(strings.Fields(query)) > 12 || !utf8.ValidString(query) {
+		return errors.New("image query must contain 1 to 160 bytes and at most 12 words")
+	}
+	for _, r := range query {
+		if unicode.IsControl(r) || !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == ' ' || r == '-') {
+			return errors.New("image query must contain only English words, numbers, spaces or hyphens")
+		}
+	}
 	return nil
 }
 
@@ -414,10 +474,23 @@ func (s *Store) writeGenerated(id, revision int, status string, g Generated) err
 		return err
 	}
 	err = affected(tx.Exec(`UPDATE kp_articles SET headline = ?, body = ?, question = ?, signature = ?, signoff = ?,
- status = 'ready', error = '', revision = revision + 1 WHERE id = ? AND revision = ?`,
+	status = 'ready', error = '', revision = revision + 1,
+	image_status = CASE WHEN image_status = 'processing' THEN 'pending' ELSE image_status END
+	WHERE id = ? AND revision = ?`,
 		g.Headline, g.Body, g.Question, g.Signature, g.Signoff, id, revision))
 	if err != nil {
 		return err
+	}
+	if status == StatusProcessing {
+		query := strings.TrimSpace(g.ImageQuery)
+		imageStatus := "none"
+		if query != "" {
+			imageStatus = StatusPending
+		}
+		if err = affected(tx.Exec(`UPDATE kp_articles SET image_query = ?, image_status = ?, image_photo = ''
+ WHERE id = ? AND revision = ?`, query, imageStatus, id, revision+1)); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -470,12 +543,83 @@ func (s *Store) FailArticle(id, revision int) error {
  AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, "Generation failed. Please retry.", id, revision))
 }
 
+func (s *Store) ClaimNextImage() (*Article, error) {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	a, err := scanArticle(tx.QueryRow("SELECT " + articleColumns + ` FROM kp_articles
+ WHERE status = 'ready' AND image_status = 'pending'
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL) ORDER BY id LIMIT 1`))
+	if err != nil {
+		return nil, err
+	}
+	if err = affected(tx.Exec(`UPDATE kp_articles SET image_status = 'processing', revision = revision + 1
+ WHERE id = ? AND revision = ? AND status = 'ready' AND image_status = 'pending'
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, a.ID, a.Revision)); err != nil {
+		return nil, err
+	}
+	a.ImageStatus = StatusProcessing
+	a.Revision++
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return a, nil
+}
+
+func (s *Store) CompleteImage(id, revision int, photo Photo) error {
+	if err := ValidatePhoto(photo); err != nil {
+		return err
+	}
+	metadata, err := json.Marshal(photo)
+	if err != nil {
+		return err
+	}
+	return affected(s.DB.Exec(`UPDATE kp_articles SET image_photo = ?, image_status = 'ready', revision = revision + 1
+ WHERE id = ? AND revision = ? AND status = 'ready' AND image_status = 'processing'
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, string(metadata), id, revision))
+}
+
+func (s *Store) FailImage(id, revision int) error {
+	return affected(s.DB.Exec(`UPDATE kp_articles SET image_status = 'failed', revision = revision + 1
+ WHERE id = ? AND revision = ? AND status = 'ready' AND image_status = 'processing'
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, id, revision))
+}
+
+func (s *Store) QueueImage(id, revision int, query string) error {
+	if err := ValidateImageQuery(query); err != nil {
+		return err
+	}
+	return affected(s.DB.Exec(`UPDATE kp_articles SET image_query = ?, image_status = 'pending', revision = revision + 1
+ WHERE id = ? AND revision = ? AND status = 'ready'
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, strings.TrimSpace(query), id, revision))
+}
+
+func (s *Store) RemoveImage(id, revision int) error {
+	return affected(s.DB.Exec(`UPDATE kp_articles SET image_status = 'removed', image_photo = '', revision = revision + 1
+ WHERE id = ? AND revision = ? AND status = 'ready'
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`, id, revision))
+}
+
 // RecoverProcessing is for single-instance startup, before workers are started.
 // Incrementing revisions invalidates callbacks from the abandoned attempts.
 func (s *Store) RecoverProcessing() error {
-	_, err := s.DB.Exec(`UPDATE kp_articles SET status = 'pending', error = '', revision = revision + 1
- WHERE status = 'processing' AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`)
-	return err
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.Exec(`UPDATE kp_articles SET status = 'pending', error = '', revision = revision + 1
+ WHERE status = 'processing' AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`UPDATE kp_articles SET image_status = 'pending', revision = revision + 1
+ WHERE status = 'ready' AND image_status = 'processing'
+ AND issue_id IN (SELECT id FROM kp_issues WHERE published_at IS NULL)`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) Publish(issueID int) (*Issue, error) {
@@ -524,7 +668,7 @@ func (s *Store) publish(issueID int, review string) (*Issue, error) {
 			rows.Close()
 			return nil, scanErr
 		}
-		if a.Status != StatusReady || ValidateGenerated(a.Kind, Generated{a.Headline, a.Body, a.Question, a.Signature, a.Signoff}) != nil {
+		if a.Status != StatusReady || ValidateGenerated(a.Kind, Generated{Headline: a.Headline, Body: a.Body, Question: a.Question, Signature: a.Signature, Signoff: a.Signoff, ImageQuery: a.ImageQuery}) != nil {
 			rows.Close()
 			return nil, ErrNotReady
 		}

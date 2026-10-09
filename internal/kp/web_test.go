@@ -102,6 +102,7 @@ func TestWebAccessGates(t *testing.T) {
 		{"GET", "/draft"}, {"GET", "/editor/article/1"},
 		{"POST", "/editor/article/1/save"}, {"POST", "/editor/article/1/remove"},
 		{"POST", "/editor/article/1/retry"}, {"POST", "/editor/issues/1/publish"},
+		{"POST", "/editor/article/1/image"}, {"POST", "/editor/article/1/image/remove"},
 	} {
 		w := webTestRequest(webTestMux(s, webTestAccess{reader: true}), route.method, route.path, nil)
 		if w.Code != http.StatusForbidden {
@@ -329,11 +330,56 @@ func TestWebSaveRevisionAndPublishedGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	form.Set("revision", strconv.Itoa(updated.Revision))
-	for _, route := range []struct{ method, suffix string }{{"GET", ""}, {"POST", "/save"}, {"POST", "/remove"}, {"POST", "/retry"}} {
+	for _, route := range []struct{ method, suffix string }{{"GET", ""}, {"POST", "/save"}, {"POST", "/remove"}, {"POST", "/retry"}, {"POST", "/image"}, {"POST", "/image/remove"}} {
 		w = webTestRequest(mux, route.method, path+route.suffix, form)
 		if w.Code != http.StatusConflict {
 			t.Errorf("published %s %s: %d", route.method, route.suffix, w.Code)
 		}
+	}
+}
+
+func TestWebEditConflictPreservesSubmittedText(t *testing.T) {
+	for _, change := range []string{"photo", "text"} {
+		t.Run(change, func(t *testing.T) {
+			s := webTestStore(t)
+			a := webTestReady(t, s)
+			if change == "photo" {
+				if err := s.QueueImage(a.ID, a.Revision, "office desk"); err != nil {
+					t.Fatal(err)
+				}
+				job, err := s.ClaimNextImage()
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := s.CompleteImage(a.ID, job.Revision, storeTestPhoto()); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := s.SaveArticle(a.ID, a.Revision, Generated{Headline: "Another editor", Body: "Current text"}); err != nil {
+				t.Fatal(err)
+			}
+			mux := webTestMux(s, webTestAccess{reader: true, editor: true})
+			form := url.Values{"revision": {strconv.Itoa(a.Revision)}, "heading": {"My unsaved <script>headline</script>"}, "body": {"My unsaved text"}}
+			path := "/editor/article/" + strconv.Itoa(a.ID) + "/save"
+			w := webTestRequest(mux, "POST", path, form)
+			current := storeTestGet(t, s, a.ID)
+			if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "My unsaved &lt;script&gt;headline&lt;/script&gt;") || !strings.Contains(w.Body.String(), "My unsaved text") || !strings.Contains(w.Body.String(), "Nuvarande artikeltext") {
+				t.Fatalf("edit lost on conflict: %d %s", w.Code, w.Body.String())
+			}
+			if strings.Contains(w.Body.String(), "<script>headline") || current.Body == "My unsaved text" {
+				t.Fatal("conflict was unsafe or wrote stale content")
+			}
+			if !strings.Contains(w.Body.String(), `name="revision" value="`+strconv.Itoa(current.Revision)+`"`) {
+				t.Fatal("reconciliation form uses stale revision")
+			}
+			form.Set("revision", strconv.Itoa(current.Revision))
+			w = webTestRequest(mux, "POST", path, form)
+			if w.Code != http.StatusSeeOther {
+				t.Fatalf("reconciled save: %d", w.Code)
+			}
+			if storeTestGet(t, s, a.ID).Body != "My unsaved text" {
+				t.Fatal("reconciled text not saved")
+			}
+		})
 	}
 }
 
@@ -435,5 +481,255 @@ func TestWebTemplateNavigationAndCSRF(t *testing.T) {
 		if strings.Contains(body, "<script>name") || !strings.Contains(body, "&lt;script&gt;name") {
 			t.Fatal("username not escaped")
 		}
+	}
+}
+
+func webTestPhoto() Photo {
+	return Photo{
+		ID: "office-photo", URL: "https://images.unsplash.com/photo-office?ixid=tracking%2Bvalue&ixlib=rb-4.1.0",
+		Alt: "A desk & window", Photographer: "Alex & Sam",
+		PhotographerURL: "https://unsplash.com/@alex?existing=a%26b",
+		PageURL:         "https://unsplash.com/photos/office-photo",
+		DownloadURL:     "https://api.unsplash.com/photos/office-photo/download",
+		Width:           1800, Height: 1200,
+	}
+}
+
+func TestWebPhotoURLs(t *testing.T) {
+	photo := webTestPhoto()
+	for _, width := range []int{400, 800, 1200} {
+		u, err := url.Parse(imageURL(&photo, width))
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := u.Query()
+		if u.Host != "images.unsplash.com" || u.Path != "/photo-office" || q.Get("w") != strconv.Itoa(width) || q.Get("h") != strconv.Itoa((width*2+1)/3) || q.Get("fit") != "crop" || q.Get("auto") != "format" || q.Get("q") != "80" || q.Get("ixid") != "tracking+value" || q.Get("ixlib") != "rb-4.1.0" {
+			t.Fatalf("incorrect image URL: %s", u)
+		}
+	}
+	u, err := url.Parse(attributionURL(photo.PhotographerURL))
+	if err != nil || u.Query().Get("utm_source") != "kumpanposten" || u.Query().Get("utm_medium") != "referral" || u.Query().Get("existing") != "a&b" {
+		t.Fatalf("incorrect attribution URL: %v %v", u, err)
+	}
+	for _, raw := range []string{"javascript:alert(1)", "https://evil.example/photo", "https://unsplash.com.evil.example/photo", "https://user@unsplash.com/photo", "http://unsplash.com/photo"} {
+		if attributionURL(raw) != "" {
+			t.Errorf("unsafe attribution accepted: %s", raw)
+		}
+		photo.URL = raw
+		if imageURL(&photo, 800) != "" {
+			t.Errorf("unsafe image accepted: %s", raw)
+		}
+	}
+}
+
+func TestWebPhotosDisplayOrderAndEscaping(t *testing.T) {
+	web := NewWeb(nil, webTestAccess{})
+	question, news := webTestPhoto(), webTestPhoto()
+	question.URL = "https://images.unsplash.com/photo-question?ixid=question"
+	question.Alt = `Window "<script>"`
+	news.URL = "https://images.unsplash.com/photo-news?ixid=news"
+	news.Photographer = "News photographer"
+	news.PhotographerURL = "https://unsplash.com/@news"
+	news.PageURL = "https://unsplash.com/photos/news-photo"
+	articles := []Article{
+		{ID: 1, Kind: KindQuestion, Status: "ready", Headline: "Question heading", Question: "Question text", Body: "Answer", Photo: &question, ImageStatus: "failed"},
+		{ID: 2, Kind: KindReport, Status: "ready", Headline: "News heading", Body: "News text", Photo: &news, ImageStatus: "pending"},
+	}
+	w := httptest.NewRecorder()
+	web.render(w, httptest.NewRequest("GET", "/draft", nil), http.StatusOK, "issue", webPage{Issue: &Issue{ID: 1}, Articles: articles, Draft: true})
+	body := w.Body.String()
+	if w.Code != http.StatusOK || strings.Count(body, `fetchpriority="high"`) != 1 || strings.Count(body, `loading="eager"`) != 1 || strings.Count(body, `loading="lazy"`) != 1 || strings.Count(body, "<figcaption>Foto:") != 2 {
+		t.Fatalf("incorrect photo rendering: %d %s", w.Code, body)
+	}
+	newsImage, questionImage := strings.Index(body, "photo-news"), strings.Index(body, "photo-question")
+	if newsImage < strings.Index(body, "<h2>News heading</h2>") || newsImage > strings.Index(body, "News text") || questionImage < strings.Index(body, "<h3>Question heading</h3>") || questionImage > strings.Index(body, "Question text") || newsImage > questionImage {
+		t.Fatal("photo not displayed between headline and article text")
+	}
+	if !strings.Contains(body[newsImage:questionImage], `fetchpriority="high"`) || strings.Contains(body[questionImage:], `fetchpriority="high"`) {
+		t.Fatal("question photo prioritized ahead of news")
+	}
+	for _, text := range []string{"400w,", "800w,", "1200w", `width="1200" height="800"`, "utm_source=kumpanposten", "utm_medium=referral", "Alex &amp; Sam", "&lt;script&gt;", "https://unsplash.com/@news?", "https://unsplash.com/photos/news-photo?", "https://unsplash.com/@alex?", "https://unsplash.com/photos/office-photo?"} {
+		if !strings.Contains(body, text) {
+			t.Errorf("missing %q", text)
+		}
+	}
+	if strings.Contains(body, "Illustrationsbild") || strings.Contains(body, "<script>") || strings.Contains(body, "#ZgotmplZ") {
+		t.Fatal("unexpected caption or unsafe HTML")
+	}
+	// Without a news photo, the first question photo becomes the only eager image.
+	articles[1].Photo = nil
+	w = httptest.NewRecorder()
+	web.render(w, httptest.NewRequest("GET", "/draft", nil), http.StatusOK, "issue", webPage{Issue: &Issue{ID: 1}, Articles: articles, Draft: true})
+	if strings.Count(w.Body.String(), `fetchpriority="high"`) != 1 || !strings.Contains(w.Body.String(), "photo-question") {
+		t.Fatal("first question photo was not prioritized")
+	}
+	question.URL = "https://evil.example/photo"
+	w = httptest.NewRecorder()
+	web.render(w, httptest.NewRequest("GET", "/draft", nil), http.StatusOK, "issue", webPage{Issue: &Issue{ID: 1}, Articles: articles, Draft: true})
+	if strings.Contains(w.Body.String(), "<img") || strings.Contains(w.Body.String(), "evil.example") {
+		t.Fatal("invalid photo rendered")
+	}
+}
+
+func TestWebImageQueueAndOptOut(t *testing.T) {
+	s := webTestStore(t)
+	a := webTestReady(t, s)
+	web := NewWeb(s, webTestAccess{reader: true, editor: true})
+	web.imagesEnabled = true
+	mux := http.NewServeMux()
+	web.Register(mux)
+	path := "/editor/article/" + strconv.Itoa(a.ID)
+	form := url.Values{"revision": {strconv.Itoa(a.Revision)}, "image_query": {"office window"}}
+	for _, query := range []string{"", strings.Repeat("a", 161)} {
+		form.Set("image_query", query)
+		if w := webTestRequest(mux, "POST", path+"/image", form); w.Code != http.StatusBadRequest {
+			t.Fatalf("invalid query: %d %s", w.Code, w.Body.String())
+		}
+	}
+	form.Set("image_query", "office window")
+	w := webTestRequest(mux, "POST", path+"/image", form)
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != path {
+		t.Fatalf("queue: %d %s", w.Code, w.Body.String())
+	}
+	queued, err := s.GetArticle(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if queued.ImageStatus != "pending" || queued.ImageQuery != "office window" || queued.Status != "ready" || queued.Revision != a.Revision+1 {
+		t.Fatal("image queue altered text readiness or failed to update revision")
+	}
+	for _, suffix := range []string{"/image", "/image/remove"} {
+		if w := webTestRequest(mux, "POST", path+suffix, form); w.Code != http.StatusConflict {
+			t.Fatalf("stale %s: %d", suffix, w.Code)
+		}
+	}
+	w = webTestRequest(mux, "GET", path, nil)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), path+"/image/remove") || !strings.Contains(w.Body.String(), "Bilden väntar") || !strings.Contains(w.Body.String(), `name="image_query" value="office window"`) || !strings.Contains(w.Body.String(), `name="csrf_token"`) {
+		t.Fatalf("pending editor: %d %s", w.Code, w.Body.String())
+	}
+	web.imagesEnabled = false
+	form.Set("revision", strconv.Itoa(queued.Revision))
+	w = webTestRequest(mux, "POST", path+"/image", form)
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "UNSPLASH_ACCESS_KEY") {
+		t.Fatalf("disabled image fetch: %d %s", w.Code, w.Body.String())
+	}
+	w = webTestRequest(mux, "GET", path, nil)
+	if strings.Contains(w.Body.String(), `name="image_query"`) || !strings.Contains(w.Body.String(), path+"/image/remove") {
+		t.Fatal("disabled fetch form shown or pending cancellation hidden")
+	}
+	w = webTestRequest(mux, "POST", path+"/image/remove", form)
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != path {
+		t.Fatalf("remove pending: %d %s", w.Code, w.Body.String())
+	}
+	for i := 0; i < 2; i++ {
+		webTestRequest(mux, "GET", path, nil)
+		webTestRequest(mux, "GET", "/draft", nil)
+	}
+	removed, err := s.GetArticle(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if removed.ImageStatus != "removed" || removed.Photo != nil || removed.Revision != queued.Revision+1 {
+		t.Fatal("GET requests requeued an opted-out image")
+	}
+}
+
+func TestWebRetainsPhotoAndPublishedImage(t *testing.T) {
+	s := webTestStore(t)
+	a := webTestReady(t, s)
+	if err := s.QueueImage(a.ID, a.Revision, "office desk"); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := s.ClaimNextImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteImage(a.ID, claim.Revision, webTestPhoto()); err != nil {
+		t.Fatal(err)
+	}
+	a, err = s.GetArticle(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := webTestMux(s, webTestAccess{reader: true, editor: true})
+	path := "/editor/article/" + strconv.Itoa(a.ID)
+	form := url.Values{"revision": {strconv.Itoa(a.Revision)}, "heading": {"Edited headline"}, "body": {"Edited body"}, "image_query": {"forged replacement"}}
+	w := webTestRequest(mux, "POST", path+"/save", form)
+	if w.Code != http.StatusSeeOther {
+		t.Fatalf("text save: %d %s", w.Code, w.Body.String())
+	}
+	a, err = s.GetArticle(a.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Photo == nil || a.Photo.ID != webTestPhoto().ID || a.ImageQuery != "office desk" || a.ImageStatus != "ready" {
+		t.Fatal("text save changed the photo or image query")
+	}
+	if err := s.QueueImage(a.ID, a.Revision, "new office desk"); err != nil {
+		t.Fatal(err)
+	}
+	claim, err = s.ClaimNextImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.FailImage(a.ID, claim.Revision); err != nil {
+		t.Fatal(err)
+	}
+	w = webTestRequest(mux, "GET", path, nil)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "photo-office") || !strings.Contains(w.Body.String(), "Bilden kunde inte hämtas") || !strings.Contains(w.Body.String(), path+"/image/remove") || strings.Contains(w.Body.String(), `fetchpriority="high"`) {
+		t.Fatalf("failed replacement editor: %d %s", w.Code, w.Body.String())
+	}
+	if _, err := s.Publish(a.IssueID); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/", "/issues/" + strconv.Itoa(a.IssueID)} {
+		w := webTestRequest(mux, "GET", path, nil)
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "photo-office") || strings.Contains(w.Body.String(), "/editor/article/") || strings.Contains(w.Body.String(), "Bilden kunde inte hämtas") {
+			t.Fatalf("published photo: %d %s", w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestWebEditorImageForms(t *testing.T) {
+	web := NewWeb(nil, webTestAccess{})
+	photo := webTestPhoto()
+	for _, state := range []string{"pending", "processing", "failed", "ready", "removed"} {
+		for _, enabled := range []bool{false, true} {
+			var buf bytes.Buffer
+			a := &Article{ID: 7, Revision: 9, Status: "ready", ImageStatus: state, ImageQuery: "office desk"}
+			if state == "ready" {
+				a.Photo = &photo
+			}
+			page := webPage{Article: a, ImagesEnabled: enabled, User: auth.User{CSRF: "token<&"}}
+			if err := web.views.ExecuteTemplate(&buf, "editor", page); err != nil {
+				t.Fatal(err)
+			}
+			body := buf.String()
+			if strings.Contains(body, `name="image_query"`) != enabled || strings.Contains(body, `/7/image/remove`) != (state != "removed") {
+				t.Fatalf("wrong controls for %s, enabled %v: %s", state, enabled, body)
+			}
+			// Every form, including logout, carries the escaped CSRF token.
+			if strings.Count(body, "<form ") != strings.Count(body, `name="csrf_token" value="token&lt;&amp;"`) {
+				t.Fatal("image form missing an escaped CSRF token")
+			}
+			if enabled && !strings.Contains(body, `maxlength="160" aria-describedby="image-hint"`) {
+				t.Fatal("image query lacks length limit or associated hint")
+			}
+			if enabled && state == "ready" && !strings.Contains(body, "Hämta ny bild") {
+				t.Fatal("existing photo does not offer replacement")
+			}
+			panel := strings.Index(body, `<section class="editor-images"`)
+			textForm := strings.Index(body, `<form class="editor"`)
+			if panel <= textForm || !strings.Contains(body[textForm:panel], "</form>") {
+				t.Fatal("image panel is nested inside the text form")
+			}
+		}
+	}
+	var buf bytes.Buffer
+	if err := web.views.ExecuteTemplate(&buf, "editor", webPage{Article: &Article{Status: "pending", ImageStatus: "pending"}, ImagesEnabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(buf.String(), "editor-images") || strings.Contains(buf.String(), `name="image_query"`) {
+		t.Fatal("unfinished article exposes image controls")
 	}
 }

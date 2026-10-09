@@ -30,6 +30,7 @@ Lokal utveckling kan använda `BASE_URL=http://localhost:8080`. Slack behöver e
 | `SESSION_SECRET` | Obligatorisk slumpmässig hemlighet på minst 32 byte. |
 | `OPENAI_API_KEY` | Obligatorisk OpenAI API-nyckel. |
 | `OPENAI_MODEL` | `gpt-4.1-mini`; kan ersättas med en modell som stöder Responses API och Structured Outputs. |
+| `UNSPLASH_ACCESS_KEY` | Valfri Access Key från Unsplash-applikationen. Aktiverar automatisk bildsökning och bildkontroller i redaktörsvyn. Ingen Secret Key behövs. |
 | `SLACK_PUBLISH_CHANNEL` | Obligatoriskt kanal-ID för publiceringslänkar. Bjud in boten till kanalen. |
 | `ADMIN_USERS` | Obligatorisk kommaseparerad lista med minst ett Slack-användar-ID. Mellanslag runt ID:n tas bort och dubbletter slås ihop. |
 
@@ -57,6 +58,18 @@ Redaktören granskar AI-texten, rättar fakta och tar manuellt bort namn och and
 
 Nyhetsartiklar skrivs ur reporterns perspektiv. Kollegan är en källa som kan nämnas i berättelsen, inte författare eller avsändare i en byline. Anonyma frågor samlas efter nyheterna under rubriken "Inuti Kumpanernas kroppar och knoppar". Varje fråga får en påhittad brevskrivarsignatur som visas tillsammans med frågan, före reporterns svar.
 
+## Artikelbilder
+
+Registrera en applikation på [Unsplash Developers](https://unsplash.com/oauth/applications) och lägg dess Access Key i Coolify som runtime-variabel `UNSPLASH_ACCESS_KEY`. Utan nyckeln fungerar textflödet som vanligt. Unsplash demo-läge tillåter 50 API-anrop per timme; ansök om produktionstillgång inför skarp användning.
+
+OpenAI returnerar en kort engelsk sökfras tillsammans med nya artiklar. Instruktionen använder allmänna, fotograferbara ämnen utan namn eller kunduppgifter. Endast sökfrasen skickas till Unsplash, inte artikeltexten eller avsändarmetadata. E-postadresser, URL:er och andra sökfraser med otillåtna tecken stoppas före sökningen. Detta är inte en garanti för att AI aldrig väljer ett olämpligt ämne; redaktören granskar både bilden och texten.
+
+Workern väljer automatiskt ett sökresultat i liggande format med `content_filter=high`. Det är ett extra filter, inte en garanti för lämpligt innehåll. Bildsökning och obligatorisk download-tracking sker i bakgrunden. En bild visas först efter lyckad tracking. Bildfel blockerar inte färdiga artiklar eller publicering. Redaktören kan ändra sökfrasen, hämta en annan bild eller ta bort bilden. När en ersättning misslyckas ligger den tidigare bilden kvar. Att ta bort bilden avbryter även en väntande bildhämtning.
+
+Bildens ID, URL och fotografuppgifter sparas med artikeln; sidvisningar gör inga nya API-sökningar. Bilder hotlinkas från Unsplash med bibehållen `ixid` och synliga fotograf-/Unsplash-länkar enligt [API-riktlinjerna](https://unsplash.com/documentation). Ingen "Illustrationsbild"-etikett läggs till. Webbläsaren hämtar bildfiler direkt från Unsplash, så leverantören får besökarens IP-adress, men appen skickar ingen referer-URL. Publicerade bildval kan inte ändras, men tillgängligheten på Unsplashs CDN ligger utanför appens kontroll.
+
+Befintliga artiklar bevaras utan att skrivas om. För äldre utkast anger redaktören en sökfras och väljer **Hämta bild**. Nya artiklar får sökfrasen automatiskt. Bildhämtning kan förbruka fler än ett API-anrop per foto; sökning och tracking räknas mot API-gränsen.
+
 Fredagar från kl. 09.00 i `Europe/Stockholm` får redaktörer en påminnelse om inget nummer har publicerats den dagen. Ingen automatisk publicering sker. Redaktörer kan publicera manuellt vilken dag som helst när alla kvarvarande artiklar är färdiga. Publicerat innehåll är oföränderligt; arkivets utseende kan ändras när HTML-mallarna ändras.
 
 Slack-notiser levereras minst en gång. En tappad nätverksbekräftelse eller ett avbrott efter sändning kan i sällsynta fall ge dubbla notiser, men inte dubbel publicering.
@@ -80,6 +93,8 @@ Inloggningen tillåter bara den konfigurerade Slack-arbetsytan. Sessioner gälle
 | `POST /editor/article/{id}/save` | Spara redigering. |
 | `POST /editor/article/{id}/remove` | Ta bort artikel från utkastet. |
 | `POST /editor/article/{id}/retry` | Försök bearbeta en misslyckad artikel igen. |
+| `POST /editor/article/{id}/image` | Köa en bildsökning med en redigerbar sökfras. |
+| `POST /editor/article/{id}/image/remove` | Ta bort bilden och avbryt väntande bildsökning. |
 | `POST /editor/issues/{id}/publish` | Bekräfta och publicera nummer. |
 
 Alla `/editor/`-rutter kräver redaktörsbehörighet. POST-formulär kräver `csrf_token`; artikeländringar kräver även aktuell `revision`, och publicering kräver `confirm=yes` samt utkastets `review`-värde. Om artiklar har tillkommit eller ändrats sedan utkastet öppnades måste redaktören granska det igen. Detta är formulärrutter, inte ett separat publikt JSON-API.
@@ -111,6 +126,8 @@ docker cp kp:/data/kp-backup.db ./kp-backup.db
 ```
 
 Flytta backupen till skyddad lagring utanför servern och prova återställning regelbundet mot en separat instans. Backuper innehåller privata bidrag och frågor. Återställ produktionsdata med appen stoppad; blanda aldrig återställd databas med gamla WAL/SHM-filer. Vid filbaserad kopiering av en stoppad installation måste hela SQLite-katalogen, inklusive eventuella WAL-filer, följa med. Inga backup- eller återställningsskript körs automatiskt.
+
+Bildfunktionen uppgraderar KP-databasen från schema 1 till 2 vid start, i en transaktion. Befintligt innehåll och publiceringstidpunkter bevaras. Ta en backup före denna deploy. Den äldre appversionen kan inte öppna schema 2; en rollback till den kräver en kompatibel backup, inte bara byte av containerimage.
 
 ## Utveckling
 

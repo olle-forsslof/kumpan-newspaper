@@ -7,6 +7,7 @@ import (
 	"errors"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strconv"
 	"time"
 
@@ -22,29 +23,70 @@ type Access interface {
 }
 
 type Web struct {
-	store  *Store
-	access Access
-	views  *template.Template
+	store         *Store
+	access        Access
+	views         *template.Template
+	imagesEnabled bool
 }
 
 type webPage struct {
-	Title     string
-	User      auth.User
-	Issue     *Issue
-	Issues    []Issue
-	Articles  []Article
-	News      []webArticle
-	Questions []webArticle
-	Article   *Article
-	Draft     bool
-	Message   string
-	Review    string
+	Title          string
+	User           auth.User
+	Issue          *Issue
+	Issues         []Issue
+	Articles       []Article
+	News           []webArticle
+	Questions      []webArticle
+	Article        *Article
+	CurrentArticle *Article
+	Draft          bool
+	Message        string
+	Review         string
+	ImagesEnabled  bool
 }
 
 type webArticle struct {
 	Article
-	Draft bool
-	CSRF  string
+	Draft         bool
+	CSRF          string
+	ImagePriority bool
+	ImageSizes    string
+}
+
+type webPhoto struct {
+	*Photo
+	Priority bool
+	Sizes    string
+}
+
+func imageURL(photo *Photo, width int) string {
+	if photo == nil || ValidatePhoto(*photo) != nil {
+		return ""
+	}
+	u, err := url.Parse(photo.URL)
+	if err != nil {
+		return ""
+	}
+	query := u.Query()
+	query.Set("w", strconv.Itoa(width))
+	query.Set("h", strconv.Itoa((width*2+1)/3))
+	query.Set("fit", "crop")
+	query.Set("auto", "format")
+	query.Set("q", "80")
+	u.RawQuery = query.Encode()
+	return u.String()
+}
+
+func attributionURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host != "unsplash.com" || u.User != nil {
+		return ""
+	}
+	query := u.Query()
+	query.Set("utm_source", "kumpanposten")
+	query.Set("utm_medium", "referral")
+	u.RawQuery = query.Encode()
+	return u.String()
 }
 
 func NewWeb(store *Store, access Access) *Web {
@@ -53,6 +95,14 @@ func NewWeb(store *Store, access Access) *Web {
 		panic("Stockholm timezone unavailable")
 	}
 	views := template.Must(template.New("kp").Funcs(template.FuncMap{
+		"imageURL":       imageURL,
+		"attributionURL": attributionURL,
+		"photoView": func(photo *Photo, priority bool, sizes string) *webPhoto {
+			if photo == nil || ValidatePhoto(*photo) != nil {
+				return nil
+			}
+			return &webPhoto{Photo: photo, Priority: priority, Sizes: sizes}
+		},
 		"date": func(t time.Time) string { return t.In(stockholm).Format("2006-01-02") },
 		"status": func(s string) string {
 			switch s {
@@ -85,6 +135,8 @@ func (web *Web) Register(mux *http.ServeMux) {
 	editor("POST /editor/article/{id}/save", web.save)
 	editor("POST /editor/article/{id}/remove", web.remove)
 	editor("POST /editor/article/{id}/retry", web.retry)
+	editor("POST /editor/article/{id}/image", web.queueImage)
+	editor("POST /editor/article/{id}/image/remove", web.removeImage)
 	editor("POST /editor/issues/{id}/publish", web.publish)
 }
 
@@ -97,12 +149,30 @@ func (web *Web) private(next http.Handler) http.Handler {
 
 func (web *Web) render(w http.ResponseWriter, r *http.Request, status int, view string, page webPage) {
 	page.User = auth.UserFrom(r.Context())
+	page.ImagesEnabled = web.imagesEnabled
 	for _, article := range page.Articles {
 		item := webArticle{Article: article, Draft: page.Draft, CSRF: page.User.CSRF}
 		if article.Kind == KindQuestion {
 			page.Questions = append(page.Questions, item)
 		} else {
 			page.News = append(page.News, item)
+		}
+	}
+	priorityAssigned := false
+	for _, group := range [][]webArticle{page.News, page.Questions} {
+		for i := range group {
+			item := &group[i]
+			item.ImageSizes = "(max-width: 48rem) 86vw, (max-width: 72rem) calc(43vw - 1rem), 29rem"
+			if item.Kind != KindQuestion {
+				item.ImageSizes = "(max-width: 48rem) 92vw, (max-width: 72rem) calc(46vw - 1rem), 32rem"
+				if len(page.News) == 1 {
+					item.ImageSizes = "(max-width: 72rem) 92vw, 66rem"
+				}
+			}
+			if !priorityAssigned && item.Status == "ready" && item.Photo != nil && ValidatePhoto(*item.Photo) == nil {
+				item.ImagePriority = true
+				priorityAssigned = true
+			}
 		}
 	}
 	var buf bytes.Buffer
@@ -258,25 +328,94 @@ func (web *Web) save(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if article.Status != "ready" || article.Revision != revision {
+	if article.Status != "ready" {
 		web.fail(w, r, ErrConflict)
 		return
 	}
 	g := Generated{Headline: r.PostForm.Get("heading"), Body: r.PostForm.Get("body"), Question: r.PostForm.Get("question"), Signature: r.PostForm.Get("signature"), Signoff: r.PostForm.Get("signoff")}
+	if article.Revision != revision {
+		web.editConflict(w, r, article, g)
+		return
+	}
 	if err := ValidateGenerated(article.Kind, g); err != nil {
 		article.Headline, article.Body, article.Question, article.Signature, article.Signoff = g.Headline, g.Body, g.Question, g.Signature, g.Signoff
 		web.render(w, r, http.StatusBadRequest, "editor", webPage{Title: "Redigera artikel", Article: article, Message: "Fyll i rubrik och brödtext. Frågebidrag behöver även fråga och signatur. Rubrik, signatur och avslutning får vara högst 500 byte; brödtext och fråga högst 20 000 byte."})
 		return
 	}
 	if err := web.store.SaveArticle(article.ID, revision, g); err != nil {
+		if errors.Is(err, ErrConflict) {
+			current, lookupErr := web.store.GetArticle(article.ID)
+			if lookupErr == nil && current.Status == StatusReady {
+				web.editConflict(w, r, current, g)
+				return
+			}
+		}
 		web.fail(w, r, err)
 		return
 	}
 	http.Redirect(w, r, "/draft", http.StatusSeeOther)
 }
 
+func (web *Web) editConflict(w http.ResponseWriter, r *http.Request, article *Article, g Generated) {
+	current := *article
+	article.Headline, article.Body, article.Question, article.Signature, article.Signoff = g.Headline, g.Body, g.Question, g.Signature, g.Signoff
+	web.render(w, r, http.StatusConflict, "editor", webPage{
+		Title: "Granska dina ändringar", Article: article, CurrentArticle: &current,
+		Message: "Artikeln eller dess bild har ändrats. Dina osparade ändringar finns kvar i formuläret. Jämför med den nuvarande texten innan du sparar igen.",
+	})
+}
+
 func (web *Web) remove(w http.ResponseWriter, r *http.Request) {
 	web.changeArticle(w, r, false)
+}
+
+func (web *Web) queueImage(w http.ResponseWriter, r *http.Request) {
+	article, ok := web.editable(w, r)
+	if !ok {
+		return
+	}
+	revision, ok := web.revision(w, r)
+	if !ok {
+		return
+	}
+	if article.Status != "ready" || article.Revision != revision {
+		web.fail(w, r, ErrConflict)
+		return
+	}
+	if !web.imagesEnabled {
+		web.render(w, r, http.StatusServiceUnavailable, "error", webPage{Title: "Bilder är inte tillgängliga", Message: "Bildhämtning är avstängd eftersom UNSPLASH_ACCESS_KEY saknas."})
+		return
+	}
+	query := r.PostForm.Get("image_query")
+	if err := ValidateImageQuery(query); err != nil {
+		web.badRequest(w, r, "Ange en allmän sökfras på engelska, högst 160 tecken. Använd inte namn eller kunduppgifter.")
+		return
+	}
+	if err := web.store.QueueImage(article.ID, revision, query); err != nil {
+		web.fail(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/editor/article/"+strconv.Itoa(article.ID), http.StatusSeeOther)
+}
+
+func (web *Web) removeImage(w http.ResponseWriter, r *http.Request) {
+	article, ok := web.editable(w, r)
+	if !ok {
+		return
+	}
+	revision, ok := web.revision(w, r)
+	if !ok {
+		return
+	}
+	if article.Status != "ready" || article.Revision != revision {
+		web.fail(w, r, ErrConflict)
+		return
+	}
+	if err := web.store.RemoveImage(article.ID, revision); err != nil {
+		web.fail(w, r, err)
+		return
+	}
+	http.Redirect(w, r, "/editor/article/"+strconv.Itoa(article.ID), http.StatusSeeOther)
 }
 
 func (web *Web) retry(w http.ResponseWriter, r *http.Request) {

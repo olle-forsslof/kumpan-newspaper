@@ -2,6 +2,16 @@
 <p><a class="action" href="/draft">Tillbaka till utkastet</a></p>
 <h1>Redigera artikel</h1>
 {{if .Message}}<p class="notice" role="alert">{{.Message}}</p>{{end}}
+{{if .CurrentArticle}}
+<details class="original" open>
+  <summary>Nuvarande artikeltext</summary>
+  <h2>{{.CurrentArticle.Headline}}</h2>
+  {{if .CurrentArticle.Question}}<blockquote class="text">{{.CurrentArticle.Question}}</blockquote>{{end}}
+  <div class="text">{{.CurrentArticle.Body}}</div>
+  {{if .CurrentArticle.Signature}}<p class="byline">{{.CurrentArticle.Signature}}</p>{{end}}
+  {{if .CurrentArticle.Signoff}}<p class="text">{{.CurrentArticle.Signoff}}</p>{{end}}
+</details>
+{{end}}
 <section class="original">
   <h2>Originalbidrag</h2>
   <p class="byline">{{if eq .Article.Kind "question"}}Anonym fråga{{else}}Från {{.Article.AuthorName}}{{end}} · {{status .Article.Status}}</p>
@@ -24,5 +34,32 @@
   </fieldset>
   <button type="submit">Spara ändringar</button>
 </form>
+<section class="editor-images" aria-labelledby="image-heading">
+  <h2 id="image-heading">Artikelbild</h2>
+  {{template "photo" (photoView .Article.Photo false "(max-width: 48rem) 92vw, 48rem")}}
+  {{if eq .Article.ImageStatus "pending"}}<p role="status">Bilden väntar på att hämtas. Artikeltexten är klar och kan publiceras.</p>
+  {{else if eq .Article.ImageStatus "processing"}}<p role="status">Bilden hämtas. Artikeltexten är klar och kan publiceras.</p>
+  {{else if eq .Article.ImageStatus "failed"}}<p role="status">Bilden kunde inte hämtas. En eventuell tidigare bild visas fortfarande. Försök med en annan sökfras eller ta bort bilden.</p>
+  {{else if eq .Article.ImageStatus "removed"}}<p>Ingen bild hämtas automatiskt. Du kan välja att hämta en bild igen.</p>{{end}}
+  {{if .ImagesEnabled}}
+  <form method="post" action="/editor/article/{{.Article.ID}}/image">
+    <input type="hidden" name="csrf_token" value="{{.User.CSRF}}">
+    <input type="hidden" name="revision" value="{{.Article.Revision}}">
+    <div class="field">
+      <label for="image-query">Sökfras för bild</label>
+      <input id="image-query" name="image_query" value="{{.Article.ImageQuery}}" maxlength="160" aria-describedby="image-hint" required>
+      <p id="image-hint" class="field-hint">Använd en allmän sökfras på engelska, utan namn eller kunduppgifter.</p>
+    </div>
+    <button type="submit">{{if .Article.Photo}}Hämta ny bild{{else}}Hämta bild{{end}}</button>
+  </form>
+  {{else}}<p>Bildhämtning är avstängd eftersom UNSPLASH_ACCESS_KEY saknas.</p>{{end}}
+  {{if or .Article.Photo (eq .Article.ImageStatus "pending") (eq .Article.ImageStatus "processing") (eq .Article.ImageStatus "ready") (eq .Article.ImageStatus "failed")}}
+  <form class="image-remove" method="post" action="/editor/article/{{.Article.ID}}/image/remove">
+    <input type="hidden" name="csrf_token" value="{{.User.CSRF}}">
+    <input type="hidden" name="revision" value="{{.Article.Revision}}">
+    <button type="submit" class="quiet">Ta bort bild</button>
+  </form>
+  {{end}}
+</section>
 {{else}}<p>Artikeln kan redigeras när bearbetningen är klar. Du kan hantera bidraget i utkastet.</p>{{end}}
 {{template "footer" .}}{{end}}

@@ -15,6 +15,7 @@ func configEnv(t *testing.T) {
 		"SLACK_BOT_TOKEN": "test-bot-token", "SLACK_CLIENT_ID": "test-client-id",
 		"SLACK_CLIENT_SECRET": "test-client-secret", "SESSION_SECRET": strings.Repeat("s", 32),
 		"OPENAI_API_KEY": "test-api-key", "OPENAI_MODEL": "",
+		"UNSPLASH_ACCESS_KEY":   "",
 		"SLACK_PUBLISH_CHANNEL": "C_TEST", "ADMIN_USERS": " U_ONE, U_TWO,U_ONE, ,U_TWO ",
 	} {
 		t.Setenv(name, value)
@@ -36,10 +37,22 @@ func TestLoadConfigDefaults(t *testing.T) {
 		WorkspaceID: "T_TEST", SigningSecret: "test-signing-secret", BotToken: "test-bot-token",
 		ClientID: "test-client-id", ClientSecret: "test-client-secret", SessionSecret: strings.Repeat("s", 32),
 		APIKey: "test-api-key", Model: "gpt-4.1-mini", PublishChannel: "C_TEST",
-		EditorIDs: []string{"U_ONE", "U_TWO"},
+		EditorIDs:         []string{"U_ONE", "U_TWO"},
+		UnsplashAccessKey: "",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatal("configuration did not match defaults and normalized editor IDs")
+	}
+}
+
+func TestLoadConfigWithoutUnsplash(t *testing.T) {
+	configEnv(t)
+	if err := os.Unsetenv("UNSPLASH_ACCESS_KEY"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig()
+	if err != nil || cfg.UnsplashAccessKey != "" {
+		t.Fatal("missing optional Unsplash key must not prevent startup")
 	}
 }
 
@@ -49,12 +62,13 @@ func TestLoadConfigOverrides(t *testing.T) {
 	t.Setenv("DATABASE_PATH", "/data/custom.db")
 	t.Setenv("BASE_URL", "http://localhost:8081/")
 	t.Setenv("OPENAI_MODEL", "custom-model-version")
+	t.Setenv("UNSPLASH_ACCESS_KEY", "fake-unsplash-key")
 	t.Setenv("ADMIN_USERS", "U_ONLY")
 	cfg, err := LoadConfig()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Port != "65535" || cfg.DatabasePath != "/data/custom.db" || cfg.BaseURL != "http://localhost:8081" || cfg.Model != "custom-model-version" || !reflect.DeepEqual(cfg.EditorIDs, []string{"U_ONLY"}) {
+	if cfg.Port != "65535" || cfg.DatabasePath != "/data/custom.db" || cfg.BaseURL != "http://localhost:8081" || cfg.Model != "custom-model-version" || cfg.UnsplashAccessKey != "fake-unsplash-key" || !reflect.DeepEqual(cfg.EditorIDs, []string{"U_ONLY"}) {
 		t.Fatal("configuration overrides were not preserved")
 	}
 }
@@ -91,6 +105,10 @@ func TestLoadConfigInvalidValues(t *testing.T) {
 		{"SESSION_SECRET", strings.Repeat("s", 32) + "\n"},
 		{"SLACK_CLIENT_SECRET", "secret\u00a0value"},
 		{"OPENAI_MODEL", " "}, {"ADMIN_USERS", " , , "},
+		{"UNSPLASH_ACCESS_KEY", " "}, {"UNSPLASH_ACCESS_KEY", " \t\n"},
+		{"UNSPLASH_ACCESS_KEY", " private-key"}, {"UNSPLASH_ACCESS_KEY", "private-key "},
+		{"UNSPLASH_ACCESS_KEY", "private\tkey"}, {"UNSPLASH_ACCESS_KEY", "private\nkey"},
+		{"UNSPLASH_ACCESS_KEY", "private\u00a0key"},
 		{"BASE_URL", "http://kp.example.com"}, {"BASE_URL", "//kp.example.com"},
 		{"BASE_URL", "https://"}, {"BASE_URL", "https:kp.example.com"},
 		{"BASE_URL", "ftp://kp.example.com"}, {"BASE_URL", "https://user:secret@kp.example.com"},

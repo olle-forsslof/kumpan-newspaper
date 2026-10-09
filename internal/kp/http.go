@@ -17,7 +17,9 @@ type AuthRoutes interface {
 func NewHTTPHandler(store *Store, access AuthRoutes, cfg Config) http.Handler {
 	mux := http.NewServeMux()
 	access.Register(mux)
-	NewWeb(store, access).Register(mux)
+	web := NewWeb(store, access)
+	web.imagesEnabled = cfg.UnsplashAccessKey != ""
+	web.Register(mux)
 	mux.Handle("POST /api/slack/commands", NewCommandHandler(store, cfg.SigningSecret, cfg.WorkspaceID))
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -39,7 +41,7 @@ func NewHTTPHandler(store *Store, access AuthRoutes, cfg Config) http.Handler {
 	baseURL, err := url.Parse(cfg.BaseURL)
 	https := err == nil && baseURL.Scheme == "https"
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self'; script-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' https://images.unsplash.com; script-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Permissions-Policy", "camera=(),microphone=(),geolocation=()")

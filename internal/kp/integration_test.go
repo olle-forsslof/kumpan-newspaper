@@ -41,6 +41,7 @@ func TestIntegrationAuthSubmissionAndPublication(t *testing.T) {
 		BaseURL: "https://kp.example.test", WorkspaceID: "Ttest",
 		SigningSecret: "test-signing-secret", ClientID: "client", ClientSecret: "test-client-secret",
 		SessionSecret: strings.Repeat("s", 32), EditorIDs: []string{"Ueditor"},
+		UnsplashAccessKey: "test-unsplash-key",
 	}
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
@@ -347,6 +348,29 @@ func TestIntegrationAuthSubmissionAndPublication(t *testing.T) {
 	if err != nil || stillDraft.PublishedAt != nil {
 		t.Fatalf("stale review published issue: %+v, error %v", stillDraft, err)
 	}
+	imageForm := url.Values{"csrf_token": {readerCSRF}, "revision": {strconv.Itoa(updated.Revision)}, "image_query": {"coffee cups"}}
+	request(http.MethodPost, editorPath+"/image", imageForm, reader, http.StatusForbidden)
+	imageForm.Set("csrf_token", "invalid")
+	request(http.MethodPost, editorPath+"/image", imageForm, editor, http.StatusForbidden)
+	imageForm.Set("csrf_token", form.Get("csrf_token"))
+	request(http.MethodPost, editorPath+"/image", imageForm, editor, http.StatusSeeOther)
+	image, err := store.ClaimNextImage()
+	if err != nil || image.ID != question.ID || image.ImageQuery != "coffee cups" {
+		t.Fatalf("image was not queued: %+v, %v", image, err)
+	}
+	photo := kp.Photo{
+		ID: "test-photo", URL: "https://images.unsplash.com/photo-fixture?ixid=keep", Alt: "Coffee cups",
+		Photographer: "Test Photographer", PhotographerURL: "https://unsplash.com/@test-photographer",
+		PageURL: "https://unsplash.com/photos/test-photo", DownloadURL: "https://api.unsplash.com/photos/test-photo/download",
+		Width: 1200, Height: 800,
+	}
+	if err := store.CompleteImage(image.ID, image.Revision, photo); err != nil {
+		t.Fatal(err)
+	}
+	updated, err = store.GetArticle(question.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	currentDraft := request(http.MethodGet, "/draft", nil, editor, http.StatusOK)
 	publishForm.Set("review", hidden(currentDraft, "review"))
 	if publishForm.Get("review") == oldReview {
@@ -371,10 +395,16 @@ func TestIntegrationAuthSubmissionAndPublication(t *testing.T) {
 		} else if !strings.Contains(body, redactedQuestion) || !strings.Contains(body, form.Get("heading")) || !strings.Contains(body, form.Get("body")) || !strings.Contains(body, "Ett nytt trad") {
 			t.Fatalf("published %s missing reviewed content", path)
 		}
+		if path != "/archive" && (!strings.Contains(body, "images.unsplash.com/photo-fixture") || !strings.Contains(body, "Test Photographer") || strings.Contains(body, "Illustrationsbild")) {
+			t.Fatal("published image or attribution missing")
+		}
 		request(http.MethodGet, path, nil, nil, http.StatusSeeOther)
 	}
 	form.Set("revision", strconv.Itoa(updated.Revision))
 	request(http.MethodPost, editorPath+"/save", form, editor, http.StatusConflict)
+	imageForm.Set("revision", strconv.Itoa(updated.Revision))
+	request(http.MethodPost, editorPath+"/image", imageForm, editor, http.StatusConflict)
+	request(http.MethodPost, editorPath+"/image/remove", imageForm, editor, http.StatusConflict)
 	if err := store.SaveArticle(updated.ID, updated.Revision, kp.Generated{Headline: "Ny rubrik", Body: "Ny text", Question: redactedQuestion, Signature: "En kollega"}); !errors.Is(err, kp.ErrConflict) {
 		t.Fatalf("published store save: %v", err)
 	}

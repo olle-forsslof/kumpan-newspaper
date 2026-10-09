@@ -3,6 +3,7 @@ package kp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,7 +14,7 @@ import (
 	"time"
 )
 
-const validReporterJSON = `{"headline":"Rubrik","body":"Text","question":"","signature":"","signoff":""}`
+const validReporterJSON = `{"headline":"Rubrik","body":"Text","question":"","signature":"","signoff":"","image_query":"team working laptops"}`
 
 func testReporter(t *testing.T, handler http.HandlerFunc) *AIReporter {
 	t.Helper()
@@ -82,11 +83,21 @@ func TestReporterRequestAndReport(t *testing.T) {
 		if !strings.Contains(request.Instructions, "newspaper Kumpanposten") || !strings.Contains(request.Instructions, "source or interviewee, not the reporter") || !strings.Contains(request.Instructions, "Mention the colleague naturally in the story") {
 			t.Error("reporter must treat the colleague as a source, not the writer")
 		}
+		for _, instruction := range []string{
+			"nonblank short English phrase of 2-6 words", "FINAL article topic, not literal keyword frequency",
+			"company/customer/project names, personal identifiers, emails, locations",
+			"confidential specifics", "indirect neutral object", "never a diagnosis or an insensitive portrait",
+			`new website -> "team working laptops"`, `smell -> "open window office"`, `cake -> "empty cake plate"`,
+		} {
+			if !strings.Contains(request.Instructions, instruction) {
+				t.Errorf("missing image query instruction: %s", instruction)
+			}
+		}
 		format := request.Text.Format
-		fields := []string{"headline", "body", "question", "signature", "signoff"}
+		fields := []string{"headline", "body", "question", "signature", "signoff", "image_query"}
 		if format.Type != "json_schema" || format.Name != "reporter" || !format.Strict || format.Schema.Type != "object" ||
 			format.Schema.AdditionalProperties == nil || *format.Schema.AdditionalProperties ||
-			!reflect.DeepEqual(format.Schema.Required, fields) || len(format.Schema.Properties) != 5 {
+			!reflect.DeepEqual(format.Schema.Required, fields) || len(format.Schema.Properties) != 6 {
 			t.Errorf("unexpected structured output schema: %+v", format)
 		}
 		for _, field := range fields {
@@ -106,13 +117,13 @@ func TestReporterRequestAndReport(t *testing.T) {
 		if input["text"] != original || input["kind"] != KindReport || input["author_name"] != "Reporter" || len(input) != 3 {
 			t.Errorf("unexpected submission fields: %v", input)
 		}
-		reporterResponse(w, "completed", `{"headline":"  Nyheter  ",`, `"body":"  En torr betraktelse.  ","question":"","signature":"","signoff":""}`)
+		reporterResponse(w, "completed", `{"headline":"  Nyheter  ",`, `"body":"  En torr betraktelse.  ","question":"","signature":"","signoff":"","image_query":"  team working laptops  "}`)
 	})
 	g, err := r.Generate(context.Background(), Article{Kind: KindReport, Original: original, AuthorName: "Reporter", AuthorID: "private-id"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if g != (Generated{Headline: "Nyheter", Body: "En torr betraktelse."}) {
+	if g != (Generated{Headline: "Nyheter", Body: "En torr betraktelse.", ImageQuery: "team working laptops"}) {
 		t.Fatalf("unexpected report: %+v", g)
 	}
 }
@@ -154,17 +165,17 @@ func TestReporterQuestion(t *testing.T) {
 				if len(input) != 2 || input["kind"] != KindQuestion || input["text"] != "En diskret fraga" {
 					t.Errorf("question request includes unexpected metadata: %v", input)
 				}
-				if !strings.Contains(request.Instructions, "signature field belongs to the person asking the question") || !strings.Contains(request.Instructions, "En fattig och känslig näsa") {
+				if !strings.Contains(request.Instructions, "made-up Swedish letter-writer signature tied to the question") || !strings.Contains(request.Instructions, "En fattig och känslig näsa") {
 					t.Error("signature must describe a fictional letter writer, not the columnist")
 				}
-				text, _ := json.Marshal(Generated{Headline: "  Fragespalten ", Body: " Prata enskilt. ", Question: " Hur tar jag upp saken? ", Signature: " Kaffekoppen ", Signoff: signoff})
+				text, _ := json.Marshal(Generated{Headline: "  Fragespalten ", Body: " Prata enskilt. ", Question: " Hur tar jag upp saken? ", Signature: " Kaffekoppen ", Signoff: signoff, ImageQuery: "  open window office  "})
 				reporterResponse(w, "completed", string(text))
 			})
 			g, err := r.Generate(context.Background(), Article{Kind: KindQuestion, Original: "En diskret fraga", AuthorName: "Do not send", AuthorID: "private-id"})
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := Generated{Headline: "Fragespalten", Body: "Prata enskilt.", Question: "Hur tar jag upp saken?", Signature: "Kaffekoppen", Signoff: strings.TrimSpace(signoff)}
+			want := Generated{Headline: "Fragespalten", Body: "Prata enskilt.", Question: "Hur tar jag upp saken?", Signature: "Kaffekoppen", Signoff: strings.TrimSpace(signoff), ImageQuery: "open window office"}
 			if g != want {
 				t.Fatalf("got %+v, want %+v", g, want)
 			}
@@ -192,7 +203,7 @@ func TestReporterRejectsInvalidOutput(t *testing.T) {
 		{"payload size", KindReport, "completed", strings.Repeat("x", 100001)},
 		{"empty content", KindReport, "completed", ""},
 	}
-	for _, field := range []string{"headline", "body", "question", "signature", "signoff"} {
+	for _, field := range []string{"headline", "body", "question", "signature", "signoff", "image_query"} {
 		for _, value := range []string{"missing", "null", "42", "true", `[]`, `{}`} {
 			var object map[string]any
 			_ = json.Unmarshal([]byte(validReporterJSON), &object)
@@ -216,6 +227,10 @@ func TestReporterRejectsInvalidOutput(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), "private") {
 				t.Fatalf("error exposes private content: %v", err)
+			}
+			var failure *reporterError
+			if !errors.As(err, &failure) {
+				t.Fatalf("expected typed private reporter error, got %T", err)
 			}
 		})
 	}
@@ -246,6 +261,24 @@ func TestReporterRejectsInvalidResponse(t *testing.T) {
 			g, err := r.Generate(context.Background(), Article{Kind: KindReport, Original: "private submission"})
 			if err == nil || g != (Generated{}) || strings.Contains(err.Error(), "private") {
 				t.Fatalf("unexpected result: %+v, %v", g, err)
+			}
+		})
+	}
+}
+
+func TestReporterDiscardsUnsafeImageQueries(t *testing.T) {
+	for _, query := range []string{"", "  ", "alice@example.com", "https://customer.example/project", "192.168.1.1 office", "open\nwindow", strings.Repeat("x", 161), strings.Repeat("word ", 13)} {
+		t.Run(query, func(t *testing.T) {
+			r := testReporter(t, func(w http.ResponseWriter, req *http.Request) {
+				text, err := json.Marshal(Generated{Headline: "Rubrik", Body: "Text", ImageQuery: query})
+				if err != nil {
+					t.Fatal(err)
+				}
+				reporterResponse(w, "completed", string(text))
+			})
+			g, err := r.Generate(context.Background(), Article{Kind: KindReport})
+			if err != nil || g.Headline != "Rubrik" || g.Body != "Text" || g.ImageQuery != "" {
+				t.Fatalf("unsafe query was retained or discarded the article: %+v, %v", g, err)
 			}
 		})
 	}

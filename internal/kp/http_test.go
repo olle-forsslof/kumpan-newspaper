@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,7 @@ func TestHTTPRoutesAndGates(t *testing.T) {
 		{"GET", "/draft", 403}, {"GET", "/editor/article/1", 403},
 		{"POST", "/editor/article/1/save", 403}, {"POST", "/editor/article/1/remove", 403},
 		{"POST", "/editor/article/1/retry", 403}, {"POST", "/editor/issues/1/publish", 403},
+		{"POST", "/editor/article/1/image", 403}, {"POST", "/editor/article/1/image/remove", 403},
 		{"GET", "/auth/test", 202}, {"POST", "/api/slack/commands", 400},
 		{"GET", "/api/slack/commands", 405}, {"GET", "/pp", 404},
 		{"POST", "/api/slack/events", 404}, {"POST", "/slack/events", 404},
@@ -89,6 +91,19 @@ func TestHTTPHealth(t *testing.T) {
 	}
 }
 
+func TestHTTPImageConfiguration(t *testing.T) {
+	s, _ := storeTestOpen(t)
+	a := storeTestReady(t, s, "Article")
+	for _, key := range []string{"", "test-unsplash-key"} {
+		h := NewHTTPHandler(s, httpTestAccess{webTestAccess{reader: true, editor: true}}, Config{UnsplashAccessKey: key})
+		r := httptest.NewRequest("GET", "/editor/article/"+strconv.Itoa(a.ID), nil)
+		w := commandTestServe(h, r)
+		if w.Code != http.StatusOK || strings.Contains(w.Body.String(), `name="image_query"`) != (key != "") {
+			t.Fatalf("image configuration mismatch: %d %s", w.Code, w.Body.String())
+		}
+	}
+}
+
 func TestHTTPHealthDeadline(t *testing.T) {
 	s, _ := storeTestOpen(t)
 	s.DB.SetMaxOpenConns(1)
@@ -116,7 +131,7 @@ func TestHTTPSecurityAndPrivacy(t *testing.T) {
 		for _, path := range []string{"/health", "/missing?secret=private-query", "/auth/test", "/auth/panic"} {
 			w := commandTestServe(h, httptest.NewRequest("GET", path, strings.NewReader("private-body")))
 			for name, want := range map[string]string{
-				"Content-Security-Policy": "default-src 'self'; style-src 'self'; img-src 'self'; script-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+				"Content-Security-Policy": "default-src 'self'; style-src 'self'; img-src 'self' https://images.unsplash.com; script-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
 				"X-Content-Type-Options":  "nosniff", "Referrer-Policy": "no-referrer",
 				"Permissions-Policy": "camera=(),microphone=(),geolocation=()", "Cache-Control": "no-store",
 			} {

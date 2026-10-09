@@ -48,11 +48,13 @@
     {{if eq .Status "ready"}}
       {{if eq .Kind "question"}}
       <h3>{{.Headline}}</h3>
+      {{template "photo" (photoView .Photo .ImagePriority .ImageSizes)}}
       <blockquote>
         <p class="text">{{.Question}}</p>
         <footer class="letter-signature">Signaturen {{.Signature}}</footer>
       </blockquote>
-      {{else}}<h2>{{.Headline}}</h2>{{end}}
+      {{else}}<h2>{{.Headline}}</h2>
+      {{template "photo" (photoView .Photo .ImagePriority .ImageSizes)}}{{end}}
       <div class="text">{{.Body}}</div>
       {{if .Signoff}}<p class="text">{{.Signoff}}</p>{{end}}
     {{else if .Draft}}
@@ -76,3 +78,10 @@
     {{end}}
   </article>
 {{end}}
+
+{{define "photo"}}{{if .}}
+<figure class="article-photo">
+  <img src="{{imageURL .Photo 800}}" srcset="{{imageURL .Photo 400}} 400w, {{imageURL .Photo 800}} 800w, {{imageURL .Photo 1200}} 1200w" sizes="{{.Sizes}}" width="1200" height="800" alt="{{.Alt}}" {{if .Priority}}loading="eager" fetchpriority="high"{{else}}loading="lazy"{{end}}>
+  <figcaption>Foto: <a href="{{attributionURL .PhotographerURL}}">{{.Photographer}}</a> på <a href="{{attributionURL .PageURL}}">Unsplash</a></figcaption>
+</figure>
+{{end}}{{end}}

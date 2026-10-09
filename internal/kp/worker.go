@@ -22,6 +22,7 @@ type Messenger interface {
 type WorkerConfig struct {
 	BaseURL, PublishChannel string
 	EditorIDs               []string
+	Photos                  PhotoService
 }
 
 // Worker runs serially in a single application instance. Failed articles require
@@ -58,6 +59,9 @@ func (w *Worker) Run(ctx context.Context) error {
 			return err
 		}
 		if err := w.process(ctx); err != nil {
+			return err
+		}
+		if err := w.processImage(ctx); err != nil {
 			return err
 		}
 		select {
@@ -120,6 +124,85 @@ func (w *Worker) send(ctx context.Context, recipient, text string) error {
 	sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 	return w.messenger.Send(sendCtx, recipient, text)
+}
+
+func (w *Worker) processImage(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if w.cfg.Photos == nil {
+		return nil
+	}
+	a, err := w.store.ClaimNextImage()
+	if errors.Is(err, sql.ErrNoRows) || errors.Is(err, ErrConflict) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	excludeID := ""
+	if a.Photo != nil {
+		excludeID = a.Photo.ID
+	}
+	imageCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	photo, imageErr := w.cfg.Photos.Search(imageCtx, a.ImageQuery, excludeID)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	stage := "search"
+	if imageErr == nil {
+		imageErr = ValidatePhoto(photo)
+		stage = "validation"
+	}
+	if imageErr == nil {
+		// Avoid tracking or attaching a result after the editor changed the draft.
+		current, err := w.store.GetArticle(a.ID)
+		if err != nil {
+			return err
+		}
+		if current.Revision != a.Revision || current.Status != StatusReady || current.ImageStatus != StatusProcessing {
+			return nil
+		}
+		issue, err := w.store.Issue(a.IssueID)
+		if err != nil {
+			return err
+		}
+		if issue.PublishedAt != nil {
+			return nil
+		}
+		stage = "tracking"
+		imageErr = w.cfg.Photos.Track(imageCtx, photo)
+	}
+	if err := ctx.Err(); err != nil {
+		// The startup recovery will requeue this claim after shutdown.
+		return err
+	}
+	if imageErr == nil {
+		imageErr = imageCtx.Err()
+	}
+	if imageErr != nil {
+		err = w.store.FailImage(a.ID, a.Revision)
+		if errors.Is(err, ErrConflict) {
+			return nil
+		}
+		if err == nil {
+			fields := []any{"article_id", a.ID, "stage", stage}
+			var failure *photoError
+			if errors.As(imageErr, &failure) {
+				fields = append(fields, "reason", failure.reason, "http_status", failure.httpStatus)
+			} else if errors.Is(imageErr, ErrNoPhoto) {
+				fields = append(fields, "reason", "no suitable photo found")
+			}
+			w.logger.Warn("article image lookup failed", fields...)
+		}
+		return err
+	}
+	err = w.store.CompleteImage(a.ID, a.Revision, photo)
+	if errors.Is(err, ErrConflict) {
+		return nil
+	}
+	return err
 }
 
 func (w *Worker) issueLink(id int) string {

@@ -653,7 +653,7 @@ func TestStoreRefusesMissingSchemaGuards(t *testing.T) {
 				t.Fatalf("refusal repaired missing guard: %v, %v", exists, err)
 			}
 			var version int
-			if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 1 {
+			if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 2 {
 				t.Fatalf("refusal changed schema version: %d, %v", version, err)
 			}
 		})
@@ -788,6 +788,7 @@ func TestStoreRefusesLegacyAndUnsupportedSchema(t *testing.T) {
 		"CREATE TABLE submissions (id INTEGER)",
 		"CREATE VIEW questions AS SELECT 1 AS id",
 		"PRAGMA user_version = 2",
+		"PRAGMA user_version = 3",
 		"PRAGMA user_version = 1",
 	} {
 		t.Run(setup, func(t *testing.T) {
