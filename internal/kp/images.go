@@ -125,9 +125,9 @@ func (a *AIImages) Generate(ctx context.Context, kind, prompt string) (ImageAsse
 	if strings.TrimSpace(a.apiKey) == "" {
 		return fail("image service not configured")
 	}
-	background, style := "opaque", "Black-and-white editorial newspaper photography with subtle grain."
+	background, style := "opaque", "Black-and-white photography with subtle grain. Make it feel unnatural."
 	if kind == "question" {
-		background, style = "transparent", "Simple black ink line cartoon on a transparent background. No color, fills, shading, gradients, or text. Do not draw a checkerboard."
+		background, style = "transparent", "Simple line cartoon on a transparent background. Drawn like by a 12 year old with a computer mouse. No color or text."
 	}
 	fullPrompt := style + "\nScene content:\n" + prompt + "\nMandatory style and safety: " + style +
 		" Use only generic fictional people, with no resemblance to real employees or other real people. No text, lettering, logos, or watermarks."

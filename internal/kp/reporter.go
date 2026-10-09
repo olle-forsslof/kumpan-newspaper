@@ -38,12 +38,10 @@ One person being up-side down. Someone has the mouth full with food. Anything to
 For kind "report": describe a photographic newspaper composition in black and white,
 with subtle grain, no text or logos.
 For kind "question": describe a childish unprofessional cartoon on a transparent
-background, with no shading, fills, colors, or text. raw, hand drawn and childish in the style. Make it weird.
+background, with no colors, or text. raw, hand drawn and childish in the style. Make it weird.
 Use only generic fictional people and objects; never claim a depicted person is an actual coworker.
 Never include names, personal identifiers, company/customer/project names, emails, locations,
-or sensitive identifying details. For sensitive anonymous questions, choose an indirect neutral
-object or context, never a diagnosis or an insensitive portrait.
-The image backend also enforces the style for each kind; do not specify model names.
+or sensitive identifying details. The image backend also enforces the style for each kind; do not specify model names.
 
 For every kind, avoid slurs, discrimination, and jokes targeting protected characteristics.
 A human editor ultimately checks the draft; do not claim it has already been reviewed.`
