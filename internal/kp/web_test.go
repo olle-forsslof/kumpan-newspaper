@@ -239,14 +239,14 @@ func TestWebNewsAndQuestionSections(t *testing.T) {
 			t.Fatal("source mention in the story was removed")
 		}
 		previous := -1
-		for _, text := range []string{"Veckans nyhet", "Inuti Kumpanernas kroppar och knoppar", "Luktfrågan", "Hur tar jag upp lukten?", "En fattig och känslig näsa", "Doftsvaret", "Fikafrågan", "En smulig detektiv", "Fikasvaret"} {
+		for _, text := range []string{"Veckans nyhet", "Kropp & Knopp", "Luktfrågan", "Hur tar jag upp lukten?", "En fattig och känslig näsa", "Doftsvaret", "Fikafrågan", "En smulig detektiv", "Fikasvaret"} {
 			position := strings.Index(body, text)
 			if position <= previous {
 				t.Fatalf("missing or incorrectly ordered %q", text)
 			}
 			previous = position
 		}
-		if strings.Count(body, "Inuti Kumpanernas kroppar och knoppar") != 1 {
+		if strings.Count(body, "Kropp & Knopp") != 1 {
 			t.Fatal("question section must have one shared heading")
 		}
 		if strings.Contains(body, "Kumpan-Posten") || !strings.Contains(body, ">Kumpanposten</a>") {
@@ -272,7 +272,7 @@ func TestWebQuestionSectionVisibility(t *testing.T) {
 			if w.Code != http.StatusOK {
 				t.Fatal(w.Code)
 			}
-			if strings.Contains(body, "Inuti Kumpanernas kroppar och knoppar") != (kind == KindQuestion) {
+			if strings.Contains(body, "Kropp & Knopp") != (kind == KindQuestion) {
 				t.Fatal("empty question section shown or pending question hidden")
 			}
 			if strings.Contains(body, "Avsändarnamn") || !strings.Contains(body, "Visa original") || !strings.Contains(body, "/remove") {

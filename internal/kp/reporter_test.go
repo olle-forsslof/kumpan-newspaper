@@ -136,6 +136,17 @@ func TestReporterRequestAndReport(t *testing.T) {
 	}
 }
 
+func TestReporterReplyLengthInstructions(t *testing.T) {
+	for _, instruction := range []string{
+		`For kind "report": write a headline and a 100-180 word newspaper body`,
+		"Keep the answer to 40-70 words in one or two short paragraphs, excluding the question and signature.",
+	} {
+		if !strings.Contains(reporterPrompt, instruction) {
+			t.Errorf("missing length instruction: %s", instruction)
+		}
+	}
+}
+
 func TestReporterConstructor(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "wrong-environment-key")
 	r := NewReporter("explicit-key", "custom-model")

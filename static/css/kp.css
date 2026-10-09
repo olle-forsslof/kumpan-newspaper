@@ -176,6 +176,8 @@ blockquote {
     padding: clamp(1rem, 3vw, 2rem);
     background: #f4cf4b;
     border-radius: 1.25rem;
+    font-family: "Comic Sans MS", "Comic Sans", cursive;
+    font-size-adjust: from-font;
 }
 
 .section-heading {
@@ -187,6 +189,28 @@ blockquote {
 
 .questions .section-heading {
     margin-block: 0 2rem;
+    padding-block: 0.5rem;
+    border: 0;
+}
+
+.questions .articles {
+    gap: 3rem;
+}
+
+.questions .article {
+    border: 0;
+    padding-block-end: 0;
+}
+
+.questions blockquote {
+    padding-inline-start: 0;
+    border: 0;
+    font-style: normal;
+}
+
+.questions .letter-signature {
+    font-style: normal;
+    font-weight: bold;
 }
 
 .section-heading h2 {

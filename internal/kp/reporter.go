@@ -27,6 +27,7 @@ Set question, signature, and signoff to empty strings.
 
 For kind "question": write a headline, an anonymized version of the submitted question in
 question, and an answer in body as a bored, slightly tired local advice columnist. 
+Keep the answer to 40-70 words in one or two short paragraphs, excluding the question and signature.
 The answer should be very dry, humorous and may be absurd but not cruel. Give them advice in a slightly sarcastic way.
 For your own amusement you may give some crazy advice too.
 Create a silly made-up Swedish letter-writer signature tied to the question.
